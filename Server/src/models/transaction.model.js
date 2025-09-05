@@ -7,137 +7,175 @@ const Transaction = sequelize.define('Transaction', {
     primaryKey: true,
     autoIncrement: true,
   },
+  fromAccountId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'from_account_id', // Map to database column name
+    references: {
+      model: 'accounts',
+      key: 'id',
+    },
+  },
+  toAccountId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'to_account_id', // Map to database column name
+    references: {
+      model: 'accounts',
+      key: 'id',
+    },
+  },
   userId: {
     type: DataTypes.INTEGER,
     allowNull: false,
+    field: 'user_id', // Map to database column name
     references: {
       model: 'users',
       key: 'id',
     },
   },
-  type: {
+  transactionType: {
     type: DataTypes.ENUM(
-      'wallet_topup',
-      'wallet_transfer',
-      'mobile_recharge',
-      'dth_recharge',
+      'transfer',
+      'deposit',
       'withdrawal',
-      'commission_credit',
-      'cashback_credit',
-      'credit_card_bill',
-      'utility_bill',
-      'insurance_payment',
-      'loan_payment',
-      'fastag_recharge',
-      'gas_booking',
-      'broadband_bill',
-      'electricity_bill',
-      'water_bill',
-      'landline_bill',
-      'education_fee',
-      'hospital_payment',
-      'government_payment',
-      'mutual_fund',
-      'investment'
+      'payment',
+      'refund',
+      'fee',
+      'commission'
     ),
     allowNull: false,
+    field: 'transaction_type', // Map to database column name
   },
   amount: {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
   },
-  balanceBefore: {
-    type: DataTypes.DECIMAL(15, 2),
-    allowNull: false,
+  feeAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0.00,
+    field: 'fee_amount', // Map to database column name
   },
-  balanceAfter: {
-    type: DataTypes.DECIMAL(15, 2),
-    allowNull: false,
-  },
-  status: {
-    type: DataTypes.ENUM('pending', 'completed', 'failed', 'cancelled', 'processing'),
-    defaultValue: 'pending',
+  currency: {
+    type: DataTypes.STRING,
+    defaultValue: 'INR',
   },
   description: {
-    type: DataTypes.STRING,
-    allowNull: false,
+    type: DataTypes.TEXT,
+    allowNull: true,
   },
-  referenceId: {
+  referenceNumber: {
     type: DataTypes.STRING,
     unique: true,
     allowNull: false,
+    field: 'reference_number', // Map to database column name
   },
-  externalTransactionId: {
+  bankReference: {
     type: DataTypes.STRING,
     allowNull: true,
+    field: 'bank_reference', // Map to database column name
   },
-  recipientId: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'users',
-      key: 'id',
-    },
-  },
-  recipientPhone: {
+  utrNumber: {
     type: DataTypes.STRING,
     allowNull: true,
+    field: 'utr_number', // Map to database column name
   },
-  metadata: {
-    type: DataTypes.JSON,
-    allowNull: true,
-  },
-  commissionAmount: {
-    type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0.00,
-  },
-  commissionRate: {
-    type: DataTypes.DECIMAL(5, 2),
-    defaultValue: 0.00,
-  },
-  serviceProvider: {
+  paymentMethod: {
     type: DataTypes.STRING,
     allowNull: true,
-    comment: 'Service provider for recharge/bill payments (e.g., Airtel, Jio, BSNL)'
+    field: 'payment_method', // Map to database column name
   },
-  serviceNumber: {
-    type: DataTypes.STRING,
+  status: {
+    type: DataTypes.ENUM('pending', 'processing', 'completed', 'failed', 'cancelled', 'refunded'),
+    defaultValue: 'pending',
+  },
+  failureReason: {
+    type: DataTypes.TEXT,
     allowNull: true,
-    comment: 'Service number (mobile, account number, etc.)'
+    field: 'failure_reason', // Map to database column name
   },
-  billAmount: {
-    type: DataTypes.DECIMAL(15, 2),
-    allowNull: true,
-    comment: 'Original bill amount (for bill payments)'
-  },
-  dueDate: {
+  processedAt: {
     type: DataTypes.DATE,
     allowNull: true,
-    comment: 'Bill due date'
+    field: 'processed_at', // Map to database column name
+  },
+  beneficiaryName: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'beneficiary_name', // Map to database column name
+  },
+  beneficiaryAccount: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'beneficiary_account', // Map to database column name
+  },
+  beneficiaryIfsc: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'beneficiary_ifsc', // Map to database column name
+  },
+  beneficiaryBank: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'beneficiary_bank', // Map to database column name
+  },
+  openingBalance: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    field: 'opening_balance', // Map to database column name
+  },
+  closingBalance: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    field: 'closing_balance', // Map to database column name
+  },
+  transactionMetadata: {
+    type: DataTypes.TEXT, // Using TEXT instead of JSON for compatibility
+    allowNull: true,
+    field: 'transaction_metadata', // Map to database column name
+  },
+  ipAddress: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'ip_address', // Map to database column name
+  },
+  deviceInfo: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'device_info', // Map to database column name
+  },
+  location: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW,
+    field: 'created_at', // Map to database column name
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW,
+    field: 'updated_at', // Map to database column name
   }
 }, {
   tableName: 'transactions',
+  timestamps: false, // We're handling timestamps manually
   indexes: [
     {
-      fields: ['userId']
+      fields: ['user_id']
     },
     {
-      fields: ['type']
+      fields: ['transaction_type']
     },
     {
       fields: ['status']
     },
     {
-      fields: ['referenceId']
+      fields: ['reference_number']
     },
     {
-      fields: ['createdAt']
-    },
-    {
-      fields: ['serviceProvider']
-    },
-    {
-      fields: ['serviceNumber']
+      fields: ['created_at']
     }
   ]
 });

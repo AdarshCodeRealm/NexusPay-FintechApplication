@@ -11,11 +11,13 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.STRING,
     unique: true,
     allowNull: false,
+    field: 'merchant_transaction_id', // Map to database column name
     comment: 'Unique transaction ID from payment gateway'
   },
   userId: {
     type: DataTypes.INTEGER,
     allowNull: true,
+    field: 'user_id', // Map to database column name
     references: {
       model: 'users',
       key: 'id',
@@ -35,21 +37,25 @@ const Payment = sequelize.define('Payment', {
   paymentMethod: {
     type: DataTypes.ENUM('PHONEPE', 'RAZORPAY', 'PAYTM', 'UPI', 'CARD', 'NETBANKING'),
     allowNull: false,
+    field: 'payment_method', // Map to database column name
     comment: 'Payment method used'
   },
   gatewayTransactionId: {
     type: DataTypes.STRING,
     allowNull: true,
+    field: 'phonepe_transaction_id', // Map to database column name
     comment: 'Transaction ID from payment gateway'
   },
   gatewayResponse: {
     type: DataTypes.JSON,
     allowNull: true,
+    field: 'provider_response', // Map to database column name
     comment: 'Complete response from payment gateway'
   },
   callbackUrl: {
     type: DataTypes.STRING,
     allowNull: true,
+    field: 'callback_url', // Map to database column name
     comment: 'Callback URL for payment verification'
   },
   customerName: {
@@ -60,11 +66,13 @@ const Payment = sequelize.define('Payment', {
   customerPhone: {
     type: DataTypes.STRING,
     allowNull: true,
+    field: 'customer_phone', // Map to database column name
     comment: 'Customer phone number'
   },
   customerEmail: {
     type: DataTypes.STRING,
     allowNull: true,
+    field: 'customer_email', // Map to database column name
     comment: 'Customer email address'
   },
   description: {
@@ -96,19 +104,19 @@ const Payment = sequelize.define('Payment', {
   tableName: 'payments',
   indexes: [
     {
-      fields: ['userId']
+      fields: ['user_id']
     },
     {
-      fields: ['transactionId']
+      fields: ['merchant_transaction_id']
     },
     {
       fields: ['status']
     },
     {
-      fields: ['paymentMethod']
+      fields: ['payment_method']
     },
     {
-      fields: ['gatewayTransactionId']
+      fields: ['phonepe_transaction_id']
     },
     {
       fields: ['createdAt']
