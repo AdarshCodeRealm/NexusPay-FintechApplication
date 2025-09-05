@@ -2,12 +2,15 @@ import express from "express"
 import cookieParser from "cookie-parser"
 import Cors from "cors"
 import dotenv from "dotenv"
+
 dotenv.config({ path: ".env" })
 
 const app = express()
+
+// Middleware setup
 app.use(
   Cors({
-    origin: process.env.CORS_ORIGIN,
+    origin: process.env.CORS_ORIGIN || "*",
     credentials: true,
   })
 )
@@ -33,5 +36,23 @@ app.use("/api/v1/users", userRouter)
 app.get("/api/v1/health", (req, res) => {
   res.status(200).json({ status: "OK", message: "Server is running" })
 })
+
+// Root route for Vercel
+app.get("/", (req, res) => {
+  res.status(200).json({ 
+    success: true, 
+    message: "Fintech API Server is running",
+    version: "1.0.0"
+  })
+})
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ 
+    success: false, 
+    message: "Something went wrong!" 
+  });
+});
 
 export { app }

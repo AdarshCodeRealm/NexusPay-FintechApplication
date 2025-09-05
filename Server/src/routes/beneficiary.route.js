@@ -7,8 +7,12 @@ import {
   verifyBeneficiary,
 } from "../controllers/beneficiary.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { initializeDatabase } from "../middlewares/database.middleware.js";
 
 const router = Router();
+
+// Apply database initialization middleware first
+router.use(initializeDatabase);
 
 // All routes are protected
 router.use(verifyJWT);

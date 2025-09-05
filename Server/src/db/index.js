@@ -12,9 +12,9 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 3306,
     dialect: 'mysql',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    logging: false, // Disable logging in production
     pool: {
-      max: 10,
+      max: 5, // Reduced for serverless
       min: 0,
       acquire: 30000,
       idle: 10000,
@@ -27,17 +27,28 @@ const sequelize = new Sequelize(
   }
 );
 
+let isConnected = false;
+
 const connectDB = async () => {
+  if (isConnected) {
+    return sequelize;
+  }
+  
   try {
     await sequelize.authenticate();
     console.log('✅ MySQL Database connected successfully');
     
-    // Sync all models
-    await sequelize.sync({ alter: true });
-    console.log('✅ Database synchronized');
+    // Only sync in development, not in production serverless
+    if (process.env.NODE_ENV !== 'production') {
+      await sequelize.sync({ alter: true });
+      console.log('✅ Database synchronized');
+    }
+    
+    isConnected = true;
+    return sequelize;
   } catch (error) {
     console.error('❌ Database connection failed:', error.message);
-    process.exit(1);
+    throw error;
   }
 };
 

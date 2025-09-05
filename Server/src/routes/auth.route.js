@@ -9,8 +9,12 @@ import {
   getCurrentUser,
 } from "../controllers/auth.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { initializeDatabase } from "../middlewares/database.middleware.js";
 
 const router = Router();
+
+// Apply database initialization middleware to all routes
+router.use(initializeDatabase);
 
 // Public routes
 router.route("/register").post(registerUser);

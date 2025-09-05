@@ -11,8 +11,12 @@ import {
 } from "../controllers/user.controller.js";
 import { verifyJWT, verifyRole } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
+import { initializeDatabase } from "../middlewares/database.middleware.js";
 
 const router = Router();
+
+// Apply database initialization middleware first
+router.use(initializeDatabase);
 
 // All routes are protected
 router.use(verifyJWT);
