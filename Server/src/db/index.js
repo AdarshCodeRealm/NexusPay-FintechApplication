@@ -34,7 +34,7 @@ const connectDB = async () => {
     return sequelize;
   }
   
-  try {
+  try { 
     await sequelize.authenticate();
     console.log('✅ MySQL Database connected successfully');
     

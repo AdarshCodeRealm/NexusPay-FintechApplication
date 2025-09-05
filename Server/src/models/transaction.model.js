@@ -23,7 +23,22 @@ const Transaction = sequelize.define('Transaction', {
       'dth_recharge',
       'withdrawal',
       'commission_credit',
-      'cashback_credit'
+      'cashback_credit',
+      'credit_card_bill',
+      'utility_bill',
+      'insurance_payment',
+      'loan_payment',
+      'fastag_recharge',
+      'gas_booking',
+      'broadband_bill',
+      'electricity_bill',
+      'water_bill',
+      'landline_bill',
+      'education_fee',
+      'hospital_payment',
+      'government_payment',
+      'mutual_fund',
+      'investment'
     ),
     allowNull: false,
   },
@@ -40,7 +55,7 @@ const Transaction = sequelize.define('Transaction', {
     allowNull: false,
   },
   status: {
-    type: DataTypes.ENUM('pending', 'completed', 'failed', 'cancelled'),
+    type: DataTypes.ENUM('pending', 'completed', 'failed', 'cancelled', 'processing'),
     defaultValue: 'pending',
   },
   description: {
@@ -80,6 +95,26 @@ const Transaction = sequelize.define('Transaction', {
     type: DataTypes.DECIMAL(5, 2),
     defaultValue: 0.00,
   },
+  serviceProvider: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Service provider for recharge/bill payments (e.g., Airtel, Jio, BSNL)'
+  },
+  serviceNumber: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Service number (mobile, account number, etc.)'
+  },
+  billAmount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    comment: 'Original bill amount (for bill payments)'
+  },
+  dueDate: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Bill due date'
+  }
 }, {
   tableName: 'transactions',
   indexes: [
@@ -97,6 +132,12 @@ const Transaction = sequelize.define('Transaction', {
     },
     {
       fields: ['createdAt']
+    },
+    {
+      fields: ['serviceProvider']
+    },
+    {
+      fields: ['serviceNumber']
     }
   ]
 });
