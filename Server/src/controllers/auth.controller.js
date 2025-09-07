@@ -87,16 +87,22 @@ const sendLoginOTP = asyncHandler(async (req, res) => {
 });
 
 const verifyOTPAndLogin = asyncHandler(async (req, res) => {
+    console.log('Request body:', req.body); // Debug log
     const { phone, otp } = req.body;
 
-    if (!phone || !otp) {
-        throw new ApiError(400, "Phone number and OTP are required");
+    // More comprehensive validation
+    if (!phone || phone.trim() === '') {
+        throw new ApiError(400, "Phone number is required");
+    }
+    
+    if (!otp || otp.trim() === '') {
+        throw new ApiError(400, "OTP is required");
     }
 
     const user = await User.findOne({ 
         where: { 
-            phone,
-            otpCode: otp,
+            phone: phone.trim(),
+            otpCode: otp.trim(),
             otpExpiry: { [Op.gt]: new Date() }
         }
     });
@@ -135,6 +141,61 @@ const verifyOTPAndLogin = asyncHandler(async (req, res) => {
                     refreshToken,
                 },
                 "User logged in successfully"
+            )
+        );
+});
+
+const verifyOTPFor2FA = asyncHandler(async (req, res) => {
+    const { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+        throw new ApiError(400, "Phone number and OTP are required");
+    }
+
+    const user = await User.findOne({ 
+        where: { 
+            phone,
+            otpCode: otp,
+            otpExpiry: { [Op.gt]: new Date() }
+        }
+    });
+
+    if (!user) {
+        throw new ApiError(401, "Invalid or expired OTP");
+    }
+
+    // Clear OTP after successful verification
+    await user.update({
+        otpCode: null,
+        otpExpiry: null,
+        phoneVerified: true,
+        lastLogin: new Date()
+    });
+
+    const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user.id);
+
+    const loggedInUser = await User.findByPk(user.id, {
+        attributes: { exclude: ['password', 'refreshToken'] }
+    });
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+    };
+
+    return res
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new ApiResponse(
+                200,
+                {
+                    user: loggedInUser,
+                    accessToken,
+                    refreshToken,
+                },
+                "2FA verification successful, user logged in"
             )
         );
 });
@@ -188,6 +249,102 @@ const loginUser = asyncHandler(async (req, res) => {
                 "User logged in successfully"
             )
         );
+});
+
+const loginWithPhone = asyncHandler(async (req, res) => {
+    const { phone, password } = req.body;
+
+    if (!phone || !password) {
+        throw new ApiError(400, "Phone number and password are required");
+    }
+
+    const user = await User.findOne({
+        where: { phone }
+    });
+
+    if (!user) {
+        throw new ApiError(404, "No user found with this phone number");
+    }
+
+    const isPasswordValid = await user.isPasswordCorrect(password);
+
+    if (!isPasswordValid) {
+        throw new ApiError(401, "Invalid password");
+    }
+
+    // Update last login
+    await user.update({ lastLogin: new Date() });
+
+    const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user.id);
+
+    const loggedInUser = await User.findByPk(user.id, {
+        attributes: { exclude: ['password', 'refreshToken'] }
+    });
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+    };
+
+    return res
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new ApiResponse(
+                200,
+                {
+                    user: loggedInUser,
+                    accessToken,
+                    refreshToken,
+                },
+                "User logged in successfully"
+            )
+        );
+});
+
+const sendDummyOTP = asyncHandler(async (req, res) => {
+    console.log('sendDummyOTP - Request body:', req.body); // Debug log
+    console.log('sendDummyOTP - Content-Type:', req.headers['content-type']); // Debug log
+    
+    const { phone } = req.body;
+
+    // Add more comprehensive validation
+    if (!phone || phone.trim() === '') {
+        console.log('sendDummyOTP - Phone validation failed:', { phone, type: typeof phone });
+        throw new ApiError(400, "Phone number is required");
+    }
+
+    // Validate phone number format (basic validation)
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(phone.trim())) {
+        throw new ApiError(400, "Please provide a valid 10-digit phone number");
+    }
+
+    const user = await User.findOne({ where: { phone: phone.trim() } });
+    if (!user) {
+        throw new ApiError(404, "User does not exist");
+    }
+
+    // For now, always use dummy OTP: 123456
+    const dummyOTP = "123456";
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await user.update({
+        otpCode: dummyOTP,
+        otpExpiry: otpExpiry
+    });
+
+    // In development, show the OTP in console
+    console.log(`🔐 Dummy OTP for ${phone}: ${dummyOTP} (expires in 10 minutes)`);
+
+    return res.status(200).json(
+        new ApiResponse(200, { 
+            message: "OTP sent successfully",
+            // In development, return the OTP for testing
+            otp: process.env.NODE_ENV === 'development' ? dummyOTP : undefined
+        }, "OTP sent successfully")
+    );
 });
 
 const logoutUser = asyncHandler(async (req, res) => {
@@ -267,8 +424,11 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 export {
     registerUser,
     sendLoginOTP,
+    sendDummyOTP,
     verifyOTPAndLogin,
+    verifyOTPFor2FA,
     loginUser,
+    loginWithPhone,
     logoutUser,
     refreshAccessToken,
     getCurrentUser,

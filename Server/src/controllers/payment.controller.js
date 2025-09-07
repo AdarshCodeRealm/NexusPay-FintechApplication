@@ -1,17 +1,32 @@
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { asyncHandler } from "../utils/utils/asyncHandler.js";
 import { ApiError } from "../utils/utils/ApiError.js";
 import { ApiResponse } from "../utils/utils/ApiResponse.js";
 import { User, Transaction, Payment } from "../models/index.js";
 import { sequelize } from "../db/index.js";
+import { generateTransactionReceipt, generateTextReceipt } from "../utils/receiptUtils.js";
 
-// PhonePe Configuration from environment variables
-const MERCHANT_KEY = process.env.PHONEPE_SALT_KEY || "6b0d884b-3d5f-4e2f-a914-85466b16f123";
-const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID || "M1QTGQSRJ90R";
+// PhonePe Configuration with better error handling
+// const MERCHANT_KEY = process.env.PHONEPE_SALT_KEY || "099eb0cd-02cf-4e2a-8aca-3e6c6aff0399";
+// const MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID || "PGTESTPAYUAT";
+const MERCHANT_KEY = "96434309-7796-489d-8924-ab56988a6076";
+const MERCHANT_ID = "PGTESTPAYUAT86";
+// Validate PhonePe credentials on startup
+if (!MERCHANT_KEY || !MERCHANT_ID) {
+  console.error("PhonePe credentials are missing. Please check your environment variables.");
+}
 
-// URLs for different environments
+console.log("PhonePe Configuration:", {
+  MERCHANT_ID: MERCHANT_ID,
+  MERCHANT_KEY: MERCHANT_KEY ? `${MERCHANT_KEY.substring(0, 8)}...` : 'NOT SET',
+  NODE_ENV: process.env.NODE_ENV
+});
+
+// URLs for different environments - Updated for correct test environment
 const MERCHANT_BASE_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/pay"
 const MERCHANT_STATUS_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/status"
 const MERCHANT_REFUND_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/refund"
@@ -28,7 +43,12 @@ const paymentStatus = asyncHandler(async (req, res) => {
   return res.status(200).json(
     new ApiResponse(
       200,
-      { status: "active", provider: "PhonePe Sandbox" },
+      { 
+        status: "active", 
+        provider: "PhonePe Sandbox",
+        merchantId: MERCHANT_ID,
+        configured: !!(MERCHANT_KEY && MERCHANT_ID)
+      },
       "Payment gateway is active"
     )
   );
@@ -113,6 +133,11 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
   try {
     const {name, mobileNumber, amount, userId, description, callbackUrl} = req.body;
     
+    // Validate PhonePe configuration
+    if (!MERCHANT_KEY || !MERCHANT_ID) {
+      throw new ApiError(500, "PhonePe configuration is incomplete");
+    }
+    
     // Validate required fields
     if (!amount || amount <= 0) {
       throw new ApiError(400, "Valid amount is required");
@@ -158,10 +183,15 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
         paymentPayload.paymentInstrument.description = description;
     }
 
+    console.log("Payment payload:", JSON.stringify(paymentPayload, null, 2));
+
     const payload = Buffer.from(JSON.stringify(paymentPayload)).toString('base64')
     const keyIndex = 1
     const string = payload + '/pg/v1/pay' + MERCHANT_KEY
     const checksum = generateChecksum(string, keyIndex)
+
+    console.log("Generated checksum:", checksum);
+    console.log("Request string:", string.substring(0, 100) + "...");
 
     const option = {
         method: 'POST',
@@ -176,8 +206,13 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
         }
     }
     
+    console.log("Making request to:", MERCHANT_BASE_URL);
+    console.log("Request headers:", option.headers);
+    
     const response = await axios.request(option);
     
+    console.log("PhonePe response:", response.data);
+    console.log("response.data.data.instrumentResponse.redirectInfo.url",response.data.data.instrumentResponse.redirectInfo.url)
     // Save payment details
     const paymentData = {
       ...paymentPayload,
@@ -202,6 +237,13 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
   } catch (error) {
     await dbTransaction.rollback();
     console.error("PhonePe payment error:", error);
+    console.error("Error response:", error.response?.data);
+    
+    // More specific error handling
+    if (error.response?.data?.message?.includes("Key not found")) {
+      throw new ApiError(500, "PhonePe merchant configuration error. Please check credentials.");
+    }
+    
     throw new ApiError(
       error.response?.status || 500,
       error.response?.data?.message || error.message || "Something went wrong during payment initiation"
@@ -242,6 +284,13 @@ const verifyPhonePePayment = asyncHandler(async (req, res) => {
     // Get payment record
     const payment = await Payment.findOne({ 
       where: { transactionId: merchantTransactionId },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'fullName', 'phone', 'walletBalance']
+        }
+      ],
       transaction: dbTransaction 
     });
     
@@ -253,48 +302,180 @@ const verifyPhonePePayment = asyncHandler(async (req, res) => {
     if (response.data.success === true && response.data.data.responseCode === "SUCCESS") {
         await updatePayment(merchantTransactionId, "SUCCESS", response.data, dbTransaction);
         
-        // If payment is successful and user exists, add money to wallet
-        if (payment.userId) {
-          const user = await User.findByPk(payment.userId, { transaction: dbTransaction });
-          if (user) {
-            const balanceBefore = parseFloat(user.walletBalance);
-            const balanceAfter = balanceBefore + parseFloat(payment.amount);
-            
-            // Create wallet transaction
-            await Transaction.create({
-              userId: user.id,
-              type: 'wallet_topup',
-              amount: parseFloat(payment.amount),
+        let receiptFileName = null;
+        let walletTransaction = null;
+        
+        // If payment is successful and user exists, add money to wallet SECURELY
+        if (payment.userId && payment.user) {
+          const user = payment.user;
+          
+          // Get current balance with row-level locking to prevent race conditions
+          const userWithLock = await User.findByPk(user.id, { 
+            transaction: dbTransaction,
+            lock: dbTransaction.LOCK.UPDATE
+          });
+          
+          if (!userWithLock) {
+            throw new ApiError(404, "User not found during balance update");
+          }
+          
+          // Calculate secure balance update
+          const balanceBefore = parseFloat(userWithLock.walletBalance) || 0;
+          const transactionAmount = parseFloat(payment.amount);
+          const balanceAfter = balanceBefore + transactionAmount;
+          
+          // Validate transaction amount
+          if (transactionAmount <= 0) {
+            throw new ApiError(400, "Invalid transaction amount");
+          }
+          
+          // STEP 1: Create wallet transaction record FIRST with PENDING status
+          walletTransaction = await Transaction.create({
+            userId: user.id,
+            type: 'wallet_topup',
+            amount: transactionAmount,
+            balanceBefore,
+            balanceAfter,
+            status: 'pending', // Initially pending
+            description: `Wallet topup via PhonePe - ₹${transactionAmount}`,
+            referenceId: `PP_${merchantTransactionId}`,
+            externalTransactionId: merchantTransactionId,
+            metadata: { 
+              paymentMethod: 'PHONEPE',
+              gatewayTransactionId: merchantTransactionId,
+              phonepeResponse: response.data.data,
+              processingStep: 'transaction_created'
+            }
+          }, { transaction: dbTransaction });
+          
+          console.log(`Transaction record created: ${walletTransaction.id} - Status: PENDING`);
+          
+          // STEP 2: Update user balance atomically
+          const [updateCount] = await User.update(
+            { walletBalance: balanceAfter },
+            { 
+              where: { 
+                id: user.id,
+                walletBalance: balanceBefore // Ensure balance hasn't changed
+              },
+              transaction: dbTransaction 
+            }
+          );
+          
+          if (updateCount === 0) {
+            throw new ApiError(409, "Balance update conflict - transaction will be retried");
+          }
+          
+          console.log(`Wallet balance updated: ${balanceBefore} -> ${balanceAfter}`);
+          
+          // STEP 3: Update transaction status to COMPLETED only after successful balance update
+          await walletTransaction.update({
+            status: 'completed',
+            metadata: {
+              ...walletTransaction.metadata,
+              processingStep: 'balance_updated',
+              completedAt: new Date()
+            }
+          }, { transaction: dbTransaction });
+          
+          console.log(`Transaction status updated to COMPLETED: ${walletTransaction.id}`);
+          
+          // STEP 4: Generate transaction receipt
+          try {
+            const receiptData = {
+              transactionId: walletTransaction.id,
+              amount: transactionAmount,
+              type: walletTransaction.type,
+              status: walletTransaction.status,
+              createdAt: walletTransaction.createdAt,
+              user: {
+                id: user.id,
+                fullName: user.fullName,
+                phone: user.phone
+              },
               balanceBefore,
               balanceAfter,
-              status: 'completed',
-              description: `Wallet topup via PhonePe`,
-              referenceId: `PP_${merchantTransactionId}`,
-              externalTransactionId: merchantTransactionId,
-              metadata: { 
-                paymentMethod: 'PHONEPE',
-                gatewayTransactionId: merchantTransactionId
+              description: walletTransaction.description,
+              referenceId: walletTransaction.referenceId,
+              paymentMethod: 'PHONEPE'
+            };
+            
+            receiptFileName = await generateTransactionReceipt(receiptData);
+            
+            // Update transaction with receipt file name
+            await walletTransaction.update({
+              metadata: {
+                ...walletTransaction.metadata,
+                receiptFile: receiptFileName,
+                processingStep: 'receipt_generated'
               }
             }, { transaction: dbTransaction });
             
-            // Update user balance
-            await user.update({
-              walletBalance: balanceAfter
+            console.log(`Receipt generated: ${receiptFileName}`);
+          } catch (receiptError) {
+            console.error('Receipt generation failed:', receiptError);
+            // Don't fail the transaction if receipt generation fails
+            await walletTransaction.update({
+              metadata: {
+                ...walletTransaction.metadata,
+                processingStep: 'receipt_failed',
+                receiptError: receiptError.message
+              }
             }, { transaction: dbTransaction });
           }
         }
         
         await dbTransaction.commit();
-        return res.redirect(`${successUrl}?id=${merchantTransactionId}`);
+        
+        // Return JSON response with receipt information
+        return res.status(200).json(
+          new ApiResponse(
+            200,
+            {
+              transactionId: merchantTransactionId,
+              walletTransactionId: walletTransaction?.id,
+              status: "SUCCESS",
+              amount: payment.amount,
+              newBalance: walletTransaction?.balanceAfter,
+              receiptFile: receiptFileName,
+              receiptUrl: receiptFileName ? `/receipts/${receiptFileName}` : null,
+              message: "Payment completed successfully and wallet updated"
+            },
+            "Payment successful"
+          )
+        );
     } else {
         await updatePayment(merchantTransactionId, "FAILED", response.data, dbTransaction);
         await dbTransaction.commit();
-        return res.redirect(`${failureUrl}?id=${merchantTransactionId}`);
+        
+        // Return JSON response instead of redirect
+        return res.status(400).json(
+          new ApiResponse(
+            400,
+            {
+              transactionId: merchantTransactionId,
+              status: "FAILED",
+              message: "Payment failed"
+            },
+            "Payment failed"
+          )
+        );
     }
   } catch (error) {
     await dbTransaction.rollback();
     console.error("PhonePe verification error:", error);
-    return res.redirect(`${failureUrl}?error=verification_failed`);
+    
+    // Return JSON response instead of redirect
+    return res.status(500).json(
+      new ApiResponse(
+        500,
+        {
+          error: "verification_failed",
+          message: error.message || "Payment verification failed"
+        },
+        "Payment verification failed"
+      )
+    );
   }
 });
 
@@ -325,29 +506,48 @@ const checkPaymentStatus = asyncHandler(async (req, res) => {
       throw new ApiError(404, "Payment not found");
     }
     
-    // If payment is not final, check with PhonePe
+    // If payment is still in progress, check with PhonePe
     if (payment.status === 'INITIATED' || payment.status === 'PENDING') {
-      const keyIndex = 1
-      const string = `/pg/v1/status/${MERCHANT_ID}/${transactionId}` + MERCHANT_KEY
-      const checksum = generateChecksum(string, keyIndex)
+      try {
+        const keyIndex = 1
+        const string = `/pg/v1/status/${MERCHANT_ID}/${transactionId}` + MERCHANT_KEY
+        const checksum = generateChecksum(string, keyIndex)
 
-      const option = {
-          method: 'GET',
-          url: `${MERCHANT_STATUS_URL}/${MERCHANT_ID}/${transactionId}`,
-          headers: {
-              accept: 'application/json',
-              'Content-Type': 'application/json',
-              'X-VERIFY': checksum,
-              'X-MERCHANT-ID': MERCHANT_ID
-          },
-      }
+        const option = {
+            method: 'GET',
+            url: `${MERCHANT_STATUS_URL}/${MERCHANT_ID}/${transactionId}`,
+            headers: {
+                accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-VERIFY': checksum,
+                'X-MERCHANT-ID': MERCHANT_ID
+            },
+        }
 
-      const response = await axios.request(option);
-      
-      if (response.data.success === true) {
-        const paymentStatus = response.data.data.responseCode === "SUCCESS" ? "SUCCESS" : "FAILED";
-        await updatePayment(transactionId, paymentStatus, response.data);
-        payment.status = paymentStatus;
+        const response = await axios.request(option);
+        
+        if (response.data.success === true) {
+          let paymentStatus = "PENDING";
+          
+          // Map PhonePe response codes to our status
+          if (response.data.data.responseCode === "SUCCESS") {
+            paymentStatus = "SUCCESS";
+          } else if (response.data.data.responseCode === "FAILURE") {
+            paymentStatus = "FAILED";
+          } else if (response.data.data.responseCode === "PENDING") {
+            paymentStatus = "PENDING";
+          }
+          
+          // Only update if status has changed from INITIATED
+          if (paymentStatus !== payment.status) {
+            await updatePayment(transactionId, paymentStatus, response.data);
+            payment.status = paymentStatus;
+          }
+        }
+      } catch (phonepeError) {
+        console.error("PhonePe status check error:", phonepeError);
+        // Don't fail the entire request if PhonePe check fails
+        // Return the current database status
       }
     }
     
@@ -360,7 +560,9 @@ const checkPaymentStatus = asyncHandler(async (req, res) => {
           amount: payment.amount,
           paymentMethod: payment.paymentMethod,
           createdAt: payment.createdAt,
-          user: payment.user
+          user: payment.user,
+          // Add additional info for debugging
+          isProcessing: payment.status === 'INITIATED' || payment.status === 'PENDING'
         },
         "Payment status retrieved successfully"
       )
@@ -455,11 +657,92 @@ const handlePhonePeWebhook = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * Download transaction receipt
+ */
+const downloadTransactionReceipt = asyncHandler(async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      throw new ApiError(401, "User authentication required");
+    }
+    
+    // Find the transaction with receipt info
+    const transaction = await Transaction.findOne({
+      where: { 
+        id: transactionId,
+        userId: userId // Ensure user can only access their own receipts
+      },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'fullName', 'phone']
+        }
+      ]
+    });
+    
+    if (!transaction) {
+      throw new ApiError(404, "Transaction not found or access denied");
+    }
+    
+    // Check if receipt exists in metadata
+    const receiptFile = transaction.metadata?.receiptFile;
+    
+    if (!receiptFile) {
+      // Generate receipt if it doesn't exist
+      const receiptData = {
+        transactionId: transaction.id,
+        amount: transaction.amount,
+        type: transaction.type,
+        status: transaction.status,
+        createdAt: transaction.createdAt,
+        user: transaction.user,
+        balanceBefore: transaction.balanceBefore,
+        balanceAfter: transaction.balanceAfter,
+        description: transaction.description,
+        referenceId: transaction.referenceId,
+        paymentMethod: transaction.metadata?.paymentMethod || 'WALLET'
+      };
+      
+      const newReceiptFile = await generateTransactionReceipt(receiptData);
+      
+      // Update transaction with receipt file
+      await transaction.update({
+        metadata: {
+          ...transaction.metadata,
+          receiptFile: newReceiptFile
+        }
+      });
+      
+      const filePath = path.join(process.cwd(), 'public', 'receipts', newReceiptFile);
+      return res.download(filePath, newReceiptFile);
+    }
+    
+    // Serve existing receipt
+    const filePath = path.join(process.cwd(), 'public', 'receipts', receiptFile);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      throw new ApiError(404, "Receipt file not found");
+    }
+    
+    res.download(filePath, receiptFile);
+    
+  } catch (error) {
+    console.error("Receipt download error:", error);
+    throw new ApiError(500, error.message || "Failed to download receipt");
+  }
+});
+
 export {
   initiatePhonePePayment,
   verifyPhonePePayment,
   paymentStatus,
   checkPaymentStatus,
   getPaymentHistory,
-  handlePhonePeWebhook
+  handlePhonePeWebhook,
+  downloadTransactionReceipt
 };

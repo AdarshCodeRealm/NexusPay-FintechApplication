@@ -8,6 +8,7 @@ import {
   getRetailers,
   updateUserStatus,
   getAllUsers,
+  searchUserByPhone,
 } from "../controllers/user.controller.js";
 import { verifyJWT, verifyRole } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
@@ -23,6 +24,9 @@ router.use(verifyJWT);
 
 // Profile management
 router.route("/profile").patch(updateProfile);
+
+// User search by phone
+router.route("/search/:phone").get(searchUserByPhone);
 
 // KYC routes
 router.route("/kyc/submit").post(

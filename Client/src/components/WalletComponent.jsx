@@ -1,22 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { 
   getWalletBalance, 
   addMoneyToWallet, 
   withdrawMoney, 
   getTransactionHistory,
-  clearError 
+  initiatePhonePePayment,
+  checkPaymentStatus,
+  clearError,
+  clearPaymentUrl,
+  downloadTransactionReceipt
 } from '../store/slices/walletSlice';
 import { Button } from './ui/button';
 
 const WalletComponent = () => {
   const dispatch = useDispatch();
-  const { balance, transactions, loading, operationLoading, error, transactionsPagination } = useSelector((state) => state.wallet);
+  const { 
+    balance, 
+    transactions, 
+    operationLoading, 
+    paymentLoading,
+    paymentUrl,
+    pendingTransactionId,
+    error, 
+    transactionsPagination 
+  } = useSelector((state) => state.wallet);
+  
+  const { user } = useSelector((state) => state.auth);
   
   const [activeTab, setActiveTab] = useState('overview');
   const [addMoneyForm, setAddMoneyForm] = useState({
     amount: '',
-    paymentMethod: 'upi'
+    paymentMethod: 'phonepe'
   });
   const [withdrawForm, setWithdrawForm] = useState({
     amount: '',
@@ -24,25 +39,289 @@ const WalletComponent = () => {
     ifscCode: '',
     accountHolderName: ''
   });
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [paymentDetails, setPaymentDetails] = useState(null);
+  const [paymentWindow, setPaymentWindow] = useState(null);
+  const [pollingInterval, setPollingInterval] = useState(null);
 
   useEffect(() => {
     dispatch(getWalletBalance());
     dispatch(getTransactionHistory({ page: 1, limit: 10 }));
   }, [dispatch]);
 
-  const handleAddMoney = async (e) => {
+  // Auto-hide success toast after 5 seconds
+  useEffect(() => {
+    if (showSuccessToast) {
+      const timer = setTimeout(() => {
+        setShowSuccessToast(false);
+        setSuccessMessage('');
+        setPaymentDetails(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showSuccessToast]);
+
+  // Polling function to check payment status
+  const pollPaymentStatus = useCallback(async (transactionId) => {
+    try {
+      const result = await dispatch(checkPaymentStatus(transactionId));
+      
+      if (result.payload && result.payload.success) {
+        const paymentData = result.payload.data;
+        
+        // Check if payment is completed (SUCCESS or FAILED)
+        if (paymentData.status === 'SUCCESS') {
+          // Close popup window FIRST
+          if (paymentWindow && !paymentWindow.closed) {
+            paymentWindow.close();
+          }
+          
+          // Then handle success
+          setShowPaymentModal(false);
+          setPaymentDetails(paymentData);
+          setSuccessMessage(`Payment successful! ₹${paymentData.amount} added to your wallet.`);
+          setShowSuccessToast(true);
+          
+          // Refresh balance and transactions
+          dispatch(getWalletBalance());
+          dispatch(getTransactionHistory({ page: 1, limit: 10 }));
+          dispatch(clearPaymentUrl());
+          
+          // Clear polling
+          if (pollingInterval) {
+            clearInterval(pollingInterval);
+            setPollingInterval(null);
+          }
+          
+          return true; // Payment completed
+        } else if (paymentData.status === 'FAILED') {
+          // Close popup window FIRST
+          if (paymentWindow && !paymentWindow.closed) {
+            paymentWindow.close();
+          }
+          
+          // Then handle failure
+          setShowPaymentModal(false);
+          setSuccessMessage('Payment failed. Please try again.');
+          setShowSuccessToast(true);
+          
+          dispatch(clearPaymentUrl());
+          
+          // Clear polling
+          if (pollingInterval) {
+            clearInterval(pollingInterval);
+            setPollingInterval(null);
+          }
+          
+          return true; // Payment completed (failed)
+        }
+      }
+      
+      return false; // Payment still pending
+    } catch (error) {
+      console.error('Error polling payment status:', error);
+      
+      // Close popup on error too
+      if (paymentWindow && !paymentWindow.closed) {
+        paymentWindow.close();
+      }
+      
+      return false;
+    }
+  }, [dispatch, paymentWindow, pollingInterval]);
+
+  // Handle payment URL redirect with polling
+  useEffect(() => {
+    if (paymentUrl && pendingTransactionId) {
+      // Prevent multiple windows if one is already open
+      if (paymentWindow && !paymentWindow.closed) {
+        return;
+      }
+      
+      setShowPaymentModal(true);
+      
+      // Open payment URL in a new window
+      const newPaymentWindow = window.open(
+        paymentUrl, 
+        'phonepe_payment', 
+        'width=600,height=700,scrollbars=yes,resizable=yes,location=yes,status=yes'
+      );
+      
+      setPaymentWindow(newPaymentWindow);
+      
+      // Clear payment URL immediately to prevent reopening
+      dispatch(clearPaymentUrl());
+      
+      // Listen for messages from popup window
+      const handleMessage = (event) => {
+        // Verify origin for security
+        if (event.origin !== window.location.origin && event.origin !== '*') {
+          return;
+        }
+        
+        if (event.data.type === 'PAYMENT_SUCCESS') {
+          // Close popup window
+          if (newPaymentWindow && !newPaymentWindow.closed) {
+            newPaymentWindow.close();
+          }
+          
+          // Handle successful payment
+          setShowPaymentModal(false);
+          setSuccessMessage(`Payment successful! ₹${event.data.data.amount} added to your wallet.`);
+          setShowSuccessToast(true);
+          
+          // Update wallet balance and transaction history
+          dispatch(getWalletBalance());
+          dispatch(getTransactionHistory({ page: 1, limit: 10 }));
+          
+          // Clear polling if active
+          if (pollingInterval) {
+            clearInterval(pollingInterval);
+            setPollingInterval(null);
+          }
+          
+          // Reset form
+          setAddMoneyForm({ amount: '' });
+        } else if (event.data.type === 'PAYMENT_ERROR') {
+          // Close popup window
+          if (newPaymentWindow && !newPaymentWindow.closed) {
+            newPaymentWindow.close();
+          }
+          
+          // Handle payment error
+          setShowPaymentModal(false);
+          setSuccessMessage(event.data.error || 'Payment failed. Please try again.');
+          setShowSuccessToast(true);
+          
+          // Clear polling if active
+          if (pollingInterval) {
+            clearInterval(pollingInterval);
+            setPollingInterval(null);
+          }
+        } else if (event.data.type === 'NAVIGATE_TO_WALLET') {
+          // Close popup window
+          if (newPaymentWindow && !newPaymentWindow.closed) {
+            newPaymentWindow.close();
+          }
+          
+          // Update wallet data
+          dispatch(getWalletBalance());
+          dispatch(getTransactionHistory({ page: 1, limit: 10 }));
+          setShowPaymentModal(false);
+        }
+      };
+      
+      window.addEventListener('message', handleMessage);
+      
+      // Start polling for payment status as backup
+      const intervalId = setInterval(async () => {
+        try {
+          const isCompleted = await pollPaymentStatus();
+          if (isCompleted) {
+            clearInterval(intervalId);
+            setPollingInterval(null);
+          }
+        } catch (error) {
+          console.error('Polling error:', error);
+        }
+      }, 3000);
+      
+      setPollingInterval(intervalId);
+      
+      // Check if window is closed manually
+      const checkWindowClosed = setInterval(() => {
+        if (newPaymentWindow.closed) {
+          clearInterval(checkWindowClosed);
+          clearInterval(intervalId);
+          setPollingInterval(null);
+          setShowPaymentModal(false);
+          window.removeEventListener('message', handleMessage);
+        }
+      }, 1000);
+      
+      // Cleanup function
+      return () => {
+        window.removeEventListener('message', handleMessage);
+        clearInterval(checkWindowClosed);
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
+      };
+    }
+  }, [paymentUrl, pendingTransactionId, dispatch, paymentWindow, pollingInterval, pollPaymentStatus]);
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+      if (paymentWindow && !paymentWindow.closed) {
+        paymentWindow.close();
+      }
+    };
+  }, [pollingInterval, paymentWindow]);
+
+  const handlePaymentComplete = useCallback(async () => {
+    setShowPaymentModal(false);
+    if (pendingTransactionId) {
+      await pollPaymentStatus(pendingTransactionId);
+    }
+    dispatch(clearPaymentUrl());
+    
+    // Clear polling
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      setPollingInterval(null);
+    }
+  }, [dispatch, pendingTransactionId, pollPaymentStatus, pollingInterval]);
+
+  const handlePhonePePayment = async (e) => {
     e.preventDefault();
     dispatch(clearError());
-    await dispatch(addMoneyToWallet({
+    
+    if (!user?.phone || !user?.fullName) {
+      dispatch({ type: 'wallet/addMoneyToWallet/rejected', payload: 'User details are incomplete' });
+      return;
+    }
+
+    const paymentData = {
       amount: parseFloat(addMoneyForm.amount),
-      paymentMethod: addMoneyForm.paymentMethod,
-      paymentDetails: {
-        gatewayName: addMoneyForm.paymentMethod,
-        gatewayTransactionId: `TEST_${Date.now()}`
-      }
-    }));
-    setAddMoneyForm({ amount: '', paymentMethod: 'upi' });
-    dispatch(getWalletBalance());
+      mobileNumber: user.phone,
+      name: user.fullName,
+      userId: user.id,
+      description: `Wallet topup of ₹${addMoneyForm.amount}`,
+      callbackUrl: `${window.location.origin}/payment-success`
+    };
+
+    const result = await dispatch(initiatePhonePePayment(paymentData));
+    
+    if (result.type === 'wallet/initiatePhonePePayment/fulfilled') {
+      setAddMoneyForm({ amount: '', paymentMethod: 'phonepe' });
+    }
+  };
+
+  const handleAddMoney = async (e) => {
+    e.preventDefault();
+    
+    if (addMoneyForm.paymentMethod === 'phonepe') {
+      handlePhonePePayment(e);
+    } else {
+      // Fallback to original method for other payment methods
+      dispatch(clearError());
+      await dispatch(addMoneyToWallet({
+        amount: parseFloat(addMoneyForm.amount),
+        paymentMethod: addMoneyForm.paymentMethod,
+        paymentDetails: {
+          gatewayName: addMoneyForm.paymentMethod,
+          gatewayTransactionId: `TEST_${Date.now()}`
+        }
+      }));
+      setAddMoneyForm({ amount: '', paymentMethod: 'phonepe' });
+      dispatch(getWalletBalance());
+    }
   };
 
   const handleWithdraw = async (e) => {
@@ -94,6 +373,47 @@ const WalletComponent = () => {
 
   return (
     <div className="space-y-6 py-6">
+      {/* Success Toast Notification */}
+      {showSuccessToast && (
+        <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top duration-300">
+          <div className="bg-white border border-green-200 rounded-2xl shadow-lg p-4 max-w-sm">
+            <div className="flex items-start space-x-3">
+              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-gray-900 text-sm">
+                  {paymentDetails ? 'Payment Successful!' : 'Notification'}
+                </h4>
+                <p className="text-gray-600 text-sm mt-1">{successMessage}</p>
+                {paymentDetails && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    <p>Transaction ID: {paymentDetails.transactionId}</p>
+                  </div>
+                )}
+              </div>
+              <button 
+                onClick={() => setShowSuccessToast(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {/* Progress bar */}
+            <div className="mt-3 w-full bg-gray-200 rounded-full h-1">
+              <div className="bg-green-500 h-1 rounded-full animate-pulse" style={{
+                width: '100%',
+                animation: 'progress 5s linear forwards'
+              }}></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Cards</h1>
@@ -107,6 +427,30 @@ const WalletComponent = () => {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
           {error}
+        </div>
+      )}
+
+      {/* Payment Processing Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-purple-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Processing Payment</h3>
+              <p className="text-gray-600 mb-4">Please complete the payment in the PhonePe window</p>
+              <Button 
+                onClick={handlePaymentComplete}
+                className="w-full bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -169,7 +513,7 @@ const WalletComponent = () => {
           {/* Desktop Add Money Form - Positioned below main card */}
           {activeTab === 'add-money' && (
             <div className="mt-6 bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-white/20 md:bg-white md:shadow-lg">
-              <h3 className="text-xl font-bold text-gray-900 mb-6">Add Money</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-6">Add Money to Wallet</h3>
               <form onSubmit={handleAddMoney} className="space-y-4">
                 <div className="md:grid md:grid-cols-2 md:gap-4 md:space-y-0 space-y-4">
                   <div>
@@ -180,9 +524,10 @@ const WalletComponent = () => {
                       type="number"
                       step="0.01"
                       min="1"
+                      max="50000"
                       required
                       className="w-full px-4 py-3 bg-white/70 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 md:bg-white"
-                      placeholder="Enter amount"
+                      placeholder="Enter amount (₹1 - ₹50,000)"
                       value={addMoneyForm.amount}
                       onChange={(e) => setAddMoneyForm({...addMoneyForm, amount: e.target.value})}
                     />
@@ -196,18 +541,44 @@ const WalletComponent = () => {
                       value={addMoneyForm.paymentMethod}
                       onChange={(e) => setAddMoneyForm({...addMoneyForm, paymentMethod: e.target.value})}
                     >
+                      <option value="phonepe">PhonePe (Recommended)</option>
                       <option value="upi">UPI</option>
                       <option value="netbanking">Net Banking</option>
                       <option value="card">Debit/Credit Card</option>
                     </select>
                   </div>
                 </div>
+                
+                {addMoneyForm.paymentMethod === 'phonepe' && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">Pe</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-purple-900">PhonePe Secure Payment</p>
+                        <p className="text-xs text-purple-600">Safe & secure payment gateway</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 <button
                   type="submit"
-                  disabled={operationLoading}
-                  className="w-full bg-purple-600 text-white py-3 rounded-xl font-medium hover:bg-purple-700 transition-colors disabled:opacity-50"
+                  disabled={paymentLoading || operationLoading}
+                  className="w-full bg-purple-600 text-white py-3 rounded-xl font-medium hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
                 >
-                  {operationLoading ? 'Processing...' : 'Add Money'}
+                  {(paymentLoading || operationLoading) ? (
+                    <>
+                      <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <span>Add Money</span>
+                  )}
                 </button>
               </form>
             </div>
@@ -217,7 +588,7 @@ const WalletComponent = () => {
         {/* Desktop Side Panel - Other Cards */}
         <div className="hidden md:block space-y-4">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">Other Cards</h3>
-          {cards.slice(1).map((card, index) => (
+          {cards.slice(1).map((card) => (
             <div key={card.id} className={`${card.gradient} rounded-2xl p-4 text-white shadow-lg hover:shadow-xl transition-shadow cursor-pointer`}>
               <div className="flex justify-between items-start mb-3">
                 <div>

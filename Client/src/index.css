@@ -118,3 +118,32 @@
     @apply md:bg-white md:rounded-2xl md:p-6 md:shadow-sm md:border md:border-gray-200;
   }
 }
+
+/* Toast notification animations */
+@keyframes progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+@keyframes slide-in-from-top {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.slide-in-from-top {
+  animation: slide-in-from-top 0.3s ease-out;
+}

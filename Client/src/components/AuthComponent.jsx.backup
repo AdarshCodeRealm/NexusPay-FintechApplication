@@ -1,0 +1,415 @@
+import React, { useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { registerUser, loginUser, loginWithPhone, sendOTP, sendDummyOTP, verifyOTP, clearError } from '../store/slices/authSlice';
+import { Button } from './ui/button';
+
+const AuthComponent = () => {
+  const dispatch = useDispatch();
+  const { loading, error, otpSent, otpLoading, isAuthenticated } = useSelector((state) => state.auth);
+  
+  const [isLogin, setIsLogin] = useState(true);
+  const [loginType, setLoginType] = useState('email'); // 'email', 'phone', 'otp'
+  const [formData, setFormData] = useState({
+    fullName: '',
+    email: '',
+    username: '',
+    password: '',
+    phone: '',
+    otp: ''
+  });
+
+  // Quick login test users
+  const testUsers = [
+    { name: 'John Doe (User)', phone: '9876543210', password: 'password123', balance: '₹5,000' },
+    { name: 'Jane Smith (Retailer)', phone: '9876543211', password: 'jane2024', balance: '₹10,000' },
+    { name: 'Mike Wilson (Distributor)', phone: '9876543212', password: 'mike@secure123', balance: '₹25,000' }
+  ];
+
+  const handleInputChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  const handleQuickLogin = (user) => {
+    setFormData({
+      ...formData,
+      phone: user.phone,
+      password: user.password
+    });
+    setLoginType('phone');
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    dispatch(clearError());
+    await dispatch(registerUser({
+      fullName: formData.fullName,
+      email: formData.email,
+      username: formData.username,
+      password: formData.password,
+      phone: formData.phone
+    }));
+  };
+
+  const handleEmailLogin = async (e) => {
+    e.preventDefault();
+    dispatch(clearError());
+    await dispatch(loginUser({
+      email: formData.email,
+      password: formData.password
+    }));
+  };
+
+  const handlePhoneLogin = async (e) => {
+    e.preventDefault();
+    dispatch(clearError());
+    await dispatch(loginWithPhone({
+      phone: formData.phone,
+      password: formData.password
+    }));
+  };
+
+  const handleSendOTP = async (e) => {
+    e.preventDefault();
+    dispatch(clearError());
+    await dispatch(sendDummyOTP(formData.phone));
+  };
+
+  const handleVerifyOTP = async (e) => {
+    e.preventDefault();
+    dispatch(clearError());
+    await dispatch(verifyOTP({
+      phone: formData.phone,
+      otp: formData.otp
+    }));
+  };
+
+  if (isAuthenticated) {
+    return null; // Will be handled by main app routing
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center auth-container py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <div className="text-center mb-6">
+            <h1 className="nexaspay-logo text-4xl mb-2">NexasPay</h1>
+            <p className="text-white/80 text-sm">Digital Wallet & Fintech Platform</p>
+          </div>
+          <div className="auth-card rounded-lg p-8">
+            <h2 className="mt-2 text-center text-3xl font-extrabold text-gray-900">
+              {isLogin ? 'Welcome Back' : 'Join NexasPay'}
+            </h2>
+            <p className="mt-2 text-center text-sm text-gray-600">
+              {isLogin ? 'Sign in to your NexasPay account' : 'Create your NexasPay account'}
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            {error}
+          </div>
+        )}
+
+        <div className="auth-card rounded-lg p-8 space-y-6">
+          {/* Toggle between Login/Register */}
+          <div className="flex space-x-4">
+            <Button
+              type="button"
+              variant={isLogin ? "default" : "outline"}
+              onClick={() => {
+                setIsLogin(true);
+                setLoginType('email');
+                dispatch(clearError());
+              }}
+              className="flex-1"
+            >
+              Login
+            </Button>
+            <Button
+              type="button"
+              variant={!isLogin ? "default" : "outline"}
+              onClick={() => {
+                setIsLogin(false);
+                setLoginType('email');
+                dispatch(clearError());
+              }}
+              className="flex-1"
+            >
+              Register
+            </Button>
+          </div>
+
+          {/* Login Type Selection */}
+          {isLogin && (
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                type="button"
+                variant={loginType === 'email' ? "default" : "outline"}
+                onClick={() => setLoginType('email')}
+                className="text-xs"
+              >
+                Email
+              </Button>
+              <Button
+                type="button"
+                variant={loginType === 'phone' ? "default" : "outline"}
+                onClick={() => setLoginType('phone')}
+                className="text-xs"
+              >
+                Phone
+              </Button>
+              <Button
+                type="button"
+                variant={loginType === 'otp' ? "default" : "outline"}
+                onClick={() => setLoginType('otp')}
+                className="text-xs"
+              >
+                OTP
+              </Button>
+            </div>
+          )}
+
+          {/* Quick Login for Testing */}
+          {isLogin && loginType === 'phone' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-blue-800 mb-3">Quick Login (For Testing):</p>
+              <div className="space-y-2">
+                {testUsers.map((user, index) => (
+                  <Button
+                    key={index}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleQuickLogin(user)}
+                    className="w-full text-left justify-start text-xs"
+                  >
+                    <div className="flex justify-between w-full">
+                      <span>{user.name}</span>
+                      <span className="text-green-600">{user.balance}</span>
+                    </div>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Registration Form */}
+          {!isLogin && (
+            <form onSubmit={handleRegister} className="space-y-6">
+              <div>
+                <input
+                  name="fullName"
+                  type="text"
+                  required
+                  className="form-input"
+                  placeholder="Full Name"
+                  value={formData.fullName}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div>
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  className="form-input"
+                  placeholder="Email address"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div>
+                <input
+                  name="username"
+                  type="text"
+                  required
+                  className="form-input"
+                  placeholder="Username"
+                  value={formData.username}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div>
+                <input
+                  name="phone"
+                  type="tel"
+                  required
+                  className="form-input"
+                  placeholder="Phone Number"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div>
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  className="form-input"
+                  placeholder="Password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full"
+              >
+                {loading ? 'Creating Account...' : 'Create NexasPay Account'}
+              </Button>
+            </form>
+          )}
+
+          {/* Login with Email */}
+          {isLogin && loginType === 'email' && (
+            <form onSubmit={handleEmailLogin} className="space-y-6">
+              <div>
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  className="form-input"
+                  placeholder="Email address"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div>
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  className="form-input"
+                  placeholder="Password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full"
+              >
+                {loading ? 'Signing in...' : 'Sign in to NexasPay'}
+              </Button>
+            </form>
+          )}
+
+          {/* Login with Phone */}
+          {isLogin && loginType === 'phone' && (
+            <form onSubmit={handlePhoneLogin} className="space-y-6">
+              <div>
+                <input
+                  name="phone"
+                  type="tel"
+                  required
+                  className="form-input"
+                  placeholder="Phone Number (e.g., 9876543210)"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div>
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  className="form-input"
+                  placeholder="Password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full"
+              >
+                {loading ? 'Signing in...' : 'Sign in with Phone'}
+              </Button>
+            </form>
+          )}
+
+          {/* Login with OTP */}
+          {isLogin && loginType === 'otp' && (
+            <div className="space-y-6">
+              {!otpSent ? (
+                <form onSubmit={handleSendOTP} className="space-y-6">
+                  <div>
+                    <input
+                      name="phone"
+                      type="tel"
+                      required
+                      className="form-input"
+                      placeholder="Phone Number (e.g., 9876543210)"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-sm text-yellow-800">
+                      <strong>Testing Mode:</strong> Dummy OTP is always <code className="bg-yellow-200 px-1 rounded">123456</code>
+                    </p>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={otpLoading}
+                    className="btn-primary w-full"
+                  >
+                    {otpLoading ? 'Sending OTP...' : 'Send Dummy OTP'}
+                  </Button>
+                </form>
+              ) : (
+                <form onSubmit={handleVerifyOTP} className="space-y-6">
+                  <div>
+                    <input
+                      name="otp"
+                      type="text"
+                      required
+                      maxLength="6"
+                      className="form-input text-center text-lg tracking-widest"
+                      placeholder="123456"
+                      value={formData.otp}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-600 text-center">
+                    OTP sent to {formData.phone}
+                  </p>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm text-green-800">
+                      <strong>Dummy OTP:</strong> <code className="bg-green-200 px-1 rounded">123456</code>
+                    </p>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={loading}
+                    className="btn-primary w-full"
+                  >
+                    {loading ? 'Verifying...' : 'Verify OTP'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSendOTP}
+                    disabled={otpLoading}
+                    className="w-full"
+                  >
+                    {otpLoading ? 'Resending...' : 'Resend OTP'}
+                  </Button>
+                </form>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AuthComponent;

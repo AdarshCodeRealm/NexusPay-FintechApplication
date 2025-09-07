@@ -461,6 +461,38 @@ const toggleUserStatus = asyncHandler(async (req, res) => {
     );
 });
 
+const searchUserByPhone = asyncHandler(async (req, res) => {
+    const { phone } = req.params;
+
+    if (!phone) {
+        throw new ApiError(400, "Phone number is required");
+    }
+
+    // Validate phone number format (basic validation)
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(phone.trim())) {
+        throw new ApiError(400, "Please provide a valid 10-digit phone number");
+    }
+
+    const user = await User.findOne({
+        where: { 
+            phone: phone.trim(),
+            isActive: true 
+        },
+        attributes: ['id', 'fullName', 'phone', 'email']
+    });
+
+    if (!user) {
+        return res.status(404).json(
+            new ApiResponse(404, null, "User not found with this phone number")
+        );
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, user, "User found successfully")
+    );
+});
+
 export {
     updateProfile,
     submitKYC,
@@ -472,5 +504,6 @@ export {
     getAllUsers,
     getUsersList,
     getUserStats,
-    toggleUserStatus
+    toggleUserStatus,
+    searchUserByPhone
 };

@@ -1,8 +1,12 @@
 import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { getCurrentUser, setAuthHeader } from './store/slices/authSlice';
 import AuthComponent from './components/AuthComponent';
 import Dashboard from './components/Dashboard';
+import PaymentSuccess from './components/PaymentSuccess';
+import PaymentFailure from './components/PaymentFailure';
+import LoadingScreen from './components/LoadingScreen';
 import './App.css';
 
 function App() {
@@ -20,27 +24,47 @@ function App() {
 
   // Show loading screen while checking authentication
   if (loading && !user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
-  // Temporarily skip authentication - go directly to Dashboard
-  return <Dashboard />;
-
-  // Original authentication flow (commented out for now)
-  // Show authentication component if not logged in
-  // if (!isAuthenticated) {
-  //   return <AuthComponent />;
-  // }
-
-  // Show dashboard if authenticated
-  // return <Dashboard />;
+  return (
+    <Router>
+      <Routes>
+        {/* Public routes for payment callbacks */}
+        <Route path="/payment-success" element={<PaymentSuccess />} />
+        <Route path="/payment-failure" element={<PaymentFailure />} />
+        <Route path="/payment-callback" element={<PaymentSuccess />} />
+        
+        {/* Protected routes */}
+        <Route 
+          path="/dashboard" 
+          element={isAuthenticated ? <Dashboard /> : <Navigate to="/auth" replace />} 
+        />
+        
+        {/* Auth route */}
+        <Route 
+          path="/auth" 
+          element={!isAuthenticated ? <AuthComponent /> : <Navigate to="/dashboard" replace />} 
+        />
+        
+        {/* Default route */}
+        <Route 
+          path="/" 
+          element={
+            isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/auth" replace />
+          } 
+        />
+        
+        {/* Catch all route */}
+        <Route 
+          path="*" 
+          element={
+            isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/auth" replace />
+          } 
+        />
+      </Routes>
+    </Router>
+  );
 }
 
 export default App;

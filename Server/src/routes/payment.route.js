@@ -5,7 +5,8 @@ import {
   paymentStatus,
   checkPaymentStatus,
   getPaymentHistory,
-  handlePhonePeWebhook
+  handlePhonePeWebhook,
+  downloadTransactionReceipt
 } from "../controllers/payment.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 
@@ -20,5 +21,6 @@ router.route("/check/:transactionId").get(checkPaymentStatus);
 
 // Protected routes (authentication required)
 router.route("/history").get(verifyJWT, getPaymentHistory);
+router.route("/receipt/:transactionId").get(verifyJWT, downloadTransactionReceipt);
 
 export default router;

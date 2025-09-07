@@ -92,6 +92,68 @@ export const mobileRecharge = createAsyncThunk(
   }
 );
 
+export const initiatePhonePePayment = createAsyncThunk(
+  'wallet/initiatePhonePePayment',
+  async (paymentData, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/payments/initiate', paymentData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to initiate payment');
+    }
+  }
+);
+
+export const checkPaymentStatus = createAsyncThunk(
+  'wallet/checkPaymentStatus',
+  async (transactionId, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/payments/check/${transactionId}`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to check payment status');
+    }
+  }
+);
+
+export const getPaymentHistory = createAsyncThunk(
+  'wallet/getPaymentHistory',
+  async (params = {}, { rejectWithValue }) => {
+    try {
+      const queryParams = new URLSearchParams(params).toString();
+      const response = await api.get(`/payments/history?${queryParams}`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch payment history');
+    }
+  }
+);
+
+export const downloadTransactionReceipt = createAsyncThunk(
+  'wallet/downloadReceipt',
+  async (transactionId, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/payments/receipt/${transactionId}`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `receipt-${transactionId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      return { transactionId };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to download receipt');
+    }
+  }
+);
+
 const walletSlice = createSlice({
   name: 'wallet',
   initialState: {
@@ -109,6 +171,10 @@ const walletSlice = createSlice({
     operationLoading: false,
     error: null,
     lastTransaction: null,
+    paymentUrl: null,
+    pendingTransactionId: null,
+    paymentHistory: [],
+    paymentLoading: false,
   },
   reducers: {
     clearError: (state) => {
@@ -120,6 +186,13 @@ const walletSlice = createSlice({
     updateBalance: (state, action) => {
       state.balance = action.payload.balance;
       state.frozenBalance = action.payload.frozenBalance || 0;
+    },
+    clearPaymentUrl: (state) => {
+      state.paymentUrl = null;
+      state.pendingTransactionId = null;
+    },
+    setPendingTransaction: (state, action) => {
+      state.pendingTransactionId = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -212,9 +285,61 @@ const walletSlice = createSlice({
       .addCase(mobileRecharge.rejected, (state, action) => {
         state.operationLoading = false;
         state.error = action.payload;
+      })
+      
+      // Initiate PhonePe Payment
+      .addCase(initiatePhonePePayment.pending, (state) => {
+        state.paymentLoading = true;
+        state.error = null;
+      })
+      .addCase(initiatePhonePePayment.fulfilled, (state, action) => {
+        state.paymentLoading = false;
+        state.paymentUrl = action.payload.data.paymentUrl;
+        state.pendingTransactionId = action.payload.data.transactionId;
+      })
+      .addCase(initiatePhonePePayment.rejected, (state, action) => {
+        state.paymentLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Check Payment Status
+      .addCase(checkPaymentStatus.pending, (state) => {
+        state.paymentLoading = true;
+        state.error = null;
+      })
+      .addCase(checkPaymentStatus.fulfilled, (state, action) => {
+        state.paymentLoading = false;
+        if (action.payload.data.status === 'SUCCESS') {
+          // Payment successful, refresh balance
+          state.balance = action.payload.data.amount + state.balance;
+        }
+      })
+      .addCase(checkPaymentStatus.rejected, (state, action) => {
+        state.paymentLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Get Payment History
+      .addCase(getPaymentHistory.pending, (state) => {
+        state.paymentLoading = true;
+        state.error = null;
+      })
+      .addCase(getPaymentHistory.fulfilled, (state, action) => {
+        state.paymentLoading = false;
+        state.paymentHistory = action.payload.data.payments;
+      })
+      .addCase(getPaymentHistory.rejected, (state, action) => {
+        state.paymentLoading = false;
+        state.error = action.payload;
       });
   },
 });
 
-export const { clearError, clearLastTransaction, updateBalance } = walletSlice.actions;
+export const { 
+  clearError, 
+  clearLastTransaction, 
+  updateBalance, 
+  clearPaymentUrl, 
+  setPendingTransaction 
+} = walletSlice.actions;
 export default walletSlice.reducer;

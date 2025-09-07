@@ -124,22 +124,39 @@ export const addRetailer = createAsyncThunk(
   }
 );
 
+export const searchUserByPhone = createAsyncThunk(
+  'user/searchUserByPhone',
+  async (phone, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/users/search/${phone}`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'User not found');
+    }
+  }
+);
+
 const userSlice = createSlice({
   name: 'user',
   initialState: {
     profile: null,
     beneficiaries: [],
     retailers: [],
+    searchedUser: null,
     kycStatus: 'pending',
     loading: false,
     beneficiaryLoading: false,
     retailerLoading: false,
     operationLoading: false,
+    searchLoading: false,
     error: null,
   },
   reducers: {
     clearError: (state) => {
       state.error = null;
+    },
+    clearSearchedUser: (state) => {
+      state.searchedUser = null;
     },
     updateKYCStatus: (state, action) => {
       state.kycStatus = action.payload;
@@ -260,9 +277,25 @@ const userSlice = createSlice({
       .addCase(addRetailer.rejected, (state, action) => {
         state.operationLoading = false;
         state.error = action.payload;
+      })
+      
+      // Search User by Phone
+      .addCase(searchUserByPhone.pending, (state) => {
+        state.searchLoading = true;
+        state.error = null;
+        state.searchedUser = null;
+      })
+      .addCase(searchUserByPhone.fulfilled, (state, action) => {
+        state.searchLoading = false;
+        state.searchedUser = action.payload.data;
+      })
+      .addCase(searchUserByPhone.rejected, (state, action) => {
+        state.searchLoading = false;
+        state.error = action.payload;
+        state.searchedUser = null;
       });
   },
 });
 
-export const { clearError, updateKYCStatus } = userSlice.actions;
+export const { clearError, clearSearchedUser, updateKYCStatus } = userSlice.actions;
 export default userSlice.reducer;
