@@ -8,7 +8,6 @@
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "build": "echo 'No build process needed for Node.js'",
-    "vercel-build": "echo 'Building for Vercel'",
     "seed": "node src/utils/seedUsers.js",
     "delete-users": "node src/utils/deleteAllUsers.js",
     "test": "echo \"Error: no test specified\" && exit 1"
