@@ -39,6 +39,11 @@ app.get("/api/v1/health", (req, res) => {
   res.status(200).json({ status: "OK", message: "Server is running" })
 })
 
+// Favicon route to prevent 404 errors
+app.get("/favicon.ico", (req, res) => {
+  res.status(204).end()
+})
+
 // Root route for Vercel
 app.get("/", (req, res) => {
   res.status(200).json({ 

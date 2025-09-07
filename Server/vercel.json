@@ -1,11 +1,6 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/index.js",
-      "use": "@vercel/node"
-    }
-  ],
+  "name": "nexuspay-backend-api-2025",
   "routes": [
     {
       "src": "/(.*)",
