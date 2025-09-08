@@ -1,5 +1,5 @@
 import { Sequelize } from 'sequelize';
-import mysql from 'mysql2/promise';
+import mysql2 from 'mysql2';
 import dotenv from "dotenv";
 
 // Load environment variables with absolute path
@@ -30,21 +30,32 @@ console.log('🔧 Database config:', {
   password: dbConfig.password ? '***HIDDEN***' : 'NOT_SET'
 });
 
-// Sequelize instance
+// Sequelize instance with serverless optimizations
 const sequelize = new Sequelize(
   dbConfig.database,
   dbConfig.user,
   dbConfig.password,
   {
     host: dbConfig.host,
-    port: dbConfig.port,
+    port: parseInt(dbConfig.port),
     dialect: 'mysql',
+    dialectModule: mysql2, // Use mysql2 directly instead of mysql2/promise
     logging: false, // Disable SQL query logging for cleaner output
     pool: {
-      max: 5,
+      max: 2, // Reduced for serverless
       min: 0,
       acquire: 30000,
       idle: 10000,
+    },
+    dialectOptions: {
+      connectTimeout: 30000,
+      acquireTimeout: 30000,
+      timeout: 30000,
+      // SSL configuration for RDS if needed
+      ssl: process.env.NODE_ENV === 'production' ? {
+        require: false,
+        rejectUnauthorized: false
+      } : false
     },
     define: {
       timestamps: true,
@@ -56,9 +67,9 @@ const sequelize = new Sequelize(
 
 let isConnected = false;
 
-// Create database if it doesn't exist
+// Create database if it doesn't exist (simplified for serverless)
 async function createDatabase() {
-  const connection = await mysql.createConnection({
+  const connection = mysql2.createConnection({
     host: dbConfig.host,
     port: dbConfig.port,
     user: dbConfig.user,
@@ -66,17 +77,22 @@ async function createDatabase() {
   });
 
   try {
-    await connection.execute(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``);
+    await new Promise((resolve, reject) => {
+      connection.execute(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``, (error, results) => {
+        if (error) reject(error);
+        else resolve(results);
+      });
+    });
     console.log(`✅ Database '${dbConfig.database}' created or already exists`);
   } catch (error) {
     console.error('❌ Error creating database:', error.message);
     throw error;
   } finally {
-    await connection.end();
+    connection.end();
   }
 }
 
-// Initialize database
+// Simplified database connection for serverless
 const connectDB = async () => {
   if (isConnected) {
     return sequelize;
@@ -85,8 +101,10 @@ const connectDB = async () => {
   try {
     console.log('🚀 Initializing database connection...');
     
-    // Step 1: Create database if it doesn't exist
-    await createDatabase();
+    // Step 1: Create database if it doesn't exist (skip in production)
+    if (process.env.NODE_ENV !== 'production') {
+      await createDatabase();
+    }
     
     // Step 2: Test Sequelize connection
     await sequelize.authenticate();
@@ -96,10 +114,12 @@ const connectDB = async () => {
     console.log('📦 Loading Sequelize models...');
     await import('../models/index.js');
     
-    // Step 4: Sync database tables (create tables if they don't exist)
-    console.log('🔄 Synchronizing database tables...');
-    await sequelize.sync({ force: false, alter: false });
-    console.log('✅ Database tables synchronized successfully');
+    // Step 4: Sync database tables (skip force sync in production)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🔄 Synchronizing database tables...');
+      await sequelize.sync({ force: false, alter: false });
+      console.log('✅ Database tables synchronized successfully');
+    }
     
     isConnected = true;
     console.log('🎉 Database initialization completed successfully!');

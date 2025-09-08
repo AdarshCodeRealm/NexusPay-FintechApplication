@@ -1,0 +1,10 @@
+node_modules
+.env
+.git
+public/temp/*
+!public/temp/.gitkeep
+README.md
+SYSTEM_DOCUMENTATION.md
+DATABASE_ER_DIAGRAM.md
+database_setup.sql
+*.log
