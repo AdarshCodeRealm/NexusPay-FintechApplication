@@ -131,7 +131,7 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
   const dbTransaction = await sequelize.transaction();
   
   try {
-    const {name, mobileNumber, amount, userId, description, callbackUrl} = req.body;
+    const {name, mobileNumber, amount, userId, description, callbackUrl, redirectMode = 'same-tab'} = req.body;
     
     // Validate PhonePe configuration
     if (!MERCHANT_KEY || !MERCHANT_ID) {
@@ -213,6 +213,7 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
     
     console.log("PhonePe response:", response.data);
     console.log("response.data.data.instrumentResponse.redirectInfo.url",response.data.data.instrumentResponse.redirectInfo.url)
+    
     // Save payment details
     const paymentData = {
       ...paymentPayload,
@@ -223,6 +224,7 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
     
     await dbTransaction.commit();
     
+    // Always return JSON response with payment URL
     return res.status(200).json(
       new ApiResponse(
         200,
@@ -255,6 +257,7 @@ const initiatePhonePePayment = asyncHandler(async (req, res) => {
  * Callback handler for PhonePe payment verification
  */
 const verifyPhonePePayment = asyncHandler(async (req, res) => {
+  console.log("Received callback from PhonePe");
   const dbTransaction = await sequelize.transaction();
   
   try {
@@ -300,6 +303,14 @@ const verifyPhonePePayment = asyncHandler(async (req, res) => {
     
     // Update payment status
     if (response.data.success === true && response.data.data.responseCode === "SUCCESS") {
+        // LOG PAYMENT SUCCESS ON SERVER
+        console.log("🎉 PAYMENT SUCCESS! 🎉");
+        console.log("Transaction ID:", merchantTransactionId);
+        console.log("Amount:", payment.amount);
+        console.log("User:", payment.user?.fullName);
+        console.log("Phone:", payment.user?.phone);
+        console.log("Payment Response:", response.data.data);
+        
         await updatePayment(merchantTransactionId, "SUCCESS", response.data, dbTransaction);
         
         let receiptFileName = null;
@@ -366,7 +377,7 @@ const verifyPhonePePayment = asyncHandler(async (req, res) => {
             throw new ApiError(409, "Balance update conflict - transaction will be retried");
           }
           
-          console.log(`Wallet balance updated: ${balanceBefore} -> ${balanceAfter}`);
+          console.log(`✅ Wallet balance updated: ₹${balanceBefore} -> ₹${balanceAfter}`);
           
           // STEP 3: Update transaction status to COMPLETED only after successful balance update
           await walletTransaction.update({
@@ -378,7 +389,7 @@ const verifyPhonePePayment = asyncHandler(async (req, res) => {
             }
           }, { transaction: dbTransaction });
           
-          console.log(`Transaction status updated to COMPLETED: ${walletTransaction.id}`);
+          console.log(`✅ Transaction status updated to COMPLETED: ${walletTransaction.id}`);
           
           // STEP 4: Generate transaction receipt
           try {
@@ -411,7 +422,7 @@ const verifyPhonePePayment = asyncHandler(async (req, res) => {
               }
             }, { transaction: dbTransaction });
             
-            console.log(`Receipt generated: ${receiptFileName}`);
+            console.log(`📄 Receipt generated: ${receiptFileName}`);
           } catch (receiptError) {
             console.error('Receipt generation failed:', receiptError);
             // Don't fail the transaction if receipt generation fails
@@ -427,55 +438,27 @@ const verifyPhonePePayment = asyncHandler(async (req, res) => {
         
         await dbTransaction.commit();
         
-        // Return JSON response with receipt information
-        return res.status(200).json(
-          new ApiResponse(
-            200,
-            {
-              transactionId: merchantTransactionId,
-              walletTransactionId: walletTransaction?.id,
-              status: "SUCCESS",
-              amount: payment.amount,
-              newBalance: walletTransaction?.balanceAfter,
-              receiptFile: receiptFileName,
-              receiptUrl: receiptFileName ? `/receipts/${receiptFileName}` : null,
-              message: "Payment completed successfully and wallet updated"
-            },
-            "Payment successful"
-          )
-        );
+        // REDIRECT TO SUCCESS URL TO CLOSE POPUP
+        console.log("🔄 Redirecting to success page...");
+        return res.redirect(`${successUrl}?id=${merchantTransactionId}&status=success&amount=${payment.amount}`);
+        
     } else {
+        console.log("❌ PAYMENT FAILED!");
+        console.log("Transaction ID:", merchantTransactionId);
+        console.log("Response:", response.data);
+        
         await updatePayment(merchantTransactionId, "FAILED", response.data, dbTransaction);
         await dbTransaction.commit();
         
-        // Return JSON response instead of redirect
-        return res.status(400).json(
-          new ApiResponse(
-            400,
-            {
-              transactionId: merchantTransactionId,
-              status: "FAILED",
-              message: "Payment failed"
-            },
-            "Payment failed"
-          )
-        );
+        // REDIRECT TO FAILURE URL
+        return res.redirect(`${failureUrl}?id=${merchantTransactionId}&status=failed&reason=payment_failed`);
     }
   } catch (error) {
     await dbTransaction.rollback();
-    console.error("PhonePe verification error:", error);
+    console.error("💥 PhonePe verification error:", error);
     
-    // Return JSON response instead of redirect
-    return res.status(500).json(
-      new ApiResponse(
-        500,
-        {
-          error: "verification_failed",
-          message: error.message || "Payment verification failed"
-        },
-        "Payment verification failed"
-      )
-    );
+    // REDIRECT TO FAILURE URL ON ERROR
+    return res.redirect(`${failureUrl}?id=${error.query?.id || 'unknown'}&status=error&reason=verification_failed`);
   }
 });
 

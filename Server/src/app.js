@@ -10,8 +10,15 @@ const app = express()
 // Middleware setup
 app.use(
   Cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: [
+      "http://localhost:5173", // Vite dev server
+      "http://localhost:3000", // Alternative dev port
+      "https://nexus-pay-fintech-application-8gni-ouod51nb5.vercel.app", // Production frontend
+      process.env.CORS_ORIGIN
+    ].filter(Boolean), // Remove any undefined values
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 )
 

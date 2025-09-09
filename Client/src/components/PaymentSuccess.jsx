@@ -11,168 +11,176 @@ const PaymentSuccess = () => {
   const [paymentDetails, setPaymentDetails] = useState(null);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
-  const maxRetries = 10; // Maximum number of status check retries
+  const [isPopup, setIsPopup] = useState(false);
+  const maxRetries = 5;
 
   useEffect(() => {
-    // Check if this is opened in a popup window
-    const isPopup = window.opener && window.opener !== window;
+    // Check if this page is opened as a popup
+    const isOpenedAsPopup = window.opener !== null && window.opener !== window;
+    setIsPopup(isOpenedAsPopup);
     
+    console.log('PaymentSuccess page loaded as popup:', isOpenedAsPopup);
+    
+    // Get transaction details from URL parameters
     const transactionId = searchParams.get('id');
+    const status = searchParams.get('status');
+    const amount = searchParams.get('amount');
+    
+    console.log('PaymentSuccess page loaded with params:', {
+      transactionId,
+      status,
+      amount,
+      isPopup: isOpenedAsPopup
+    });
     
     if (transactionId) {
-      checkPaymentStatusWithRetry(transactionId, isPopup);
+      // If we already have status=success from backend, show success immediately
+      if (status === 'success' && amount) {
+        const successData = {
+          transactionId,
+          status: 'SUCCESS',
+          amount: parseFloat(amount)
+        };
+        setPaymentDetails(successData);
+        setLoading(false);
+        
+        // Send success message to parent window if opened as popup
+        if (isOpenedAsPopup) {
+          console.log('Sending payment success message to parent window');
+          window.opener.postMessage({
+            type: 'PAYMENT_COMPLETED',
+            transactionId,
+            status: 'success',
+            data: successData
+          }, window.location.origin);
+          
+          // Auto-close popup after 3 seconds
+          setTimeout(() => {
+            console.log('Auto-closing payment popup window');
+            window.close();
+          }, 3000);
+        }
+        
+        // Still refresh wallet balance
+        dispatch(getWalletBalance());
+      } else {
+        // Otherwise check payment status
+        checkPaymentStatusWithRetry(transactionId);
+      }
     } else {
-      setError('No transaction ID found');
+      setError('No transaction ID found in URL');
       setLoading(false);
       
-      // If this is a popup and no transaction ID, close it
-      if (isPopup) {
-        setTimeout(() => {
-          window.close();
-        }, 2000);
+      // Send error message to parent if popup
+      if (isOpenedAsPopup) {
+        window.opener.postMessage({
+          type: 'PAYMENT_COMPLETED',
+          status: 'failed',
+          error: 'No transaction ID found'
+        }, window.location.origin);
       }
     }
-
-    // Listen for messages from parent window (if this is a popup)
-    const handleMessage = (event) => {
-      if (event.data.type === 'CLOSE_POPUP') {
-        window.close();
-      }
-    };
-
-    if (isPopup) {
-      window.addEventListener('message', handleMessage);
-    }
-
-    return () => {
-      if (isPopup) {
-        window.removeEventListener('message', handleMessage);
-      }
-    };
   }, [searchParams, dispatch]);
 
-  const checkPaymentStatusWithRetry = async (transactionId, isPopup, currentRetry = 0) => {
+  const checkPaymentStatusWithRetry = async (transactionId, currentRetry = 0) => {
     try {
+      console.log(`Checking payment status for transaction ${transactionId}, attempt ${currentRetry + 1}`);
+      
       const result = await dispatch(checkPaymentStatus(transactionId));
       
       if (result.payload && result.payload.success) {
         const paymentData = result.payload.data;
         
-        // Check if payment is actually successful
+        console.log('Payment status check result:', paymentData);
+        
         if (paymentData.status === 'SUCCESS') {
           setPaymentDetails(paymentData);
           // Refresh wallet balance
           dispatch(getWalletBalance());
-          
-          // If this is a popup, notify parent window and close
-          if (isPopup) {
-            const sendMessage = () => {
-              try {
-                window.opener.postMessage({
-                  type: 'PAYMENT_SUCCESS',
-                  data: paymentData
-                }, window.location.origin);
-                
-                window.opener.postMessage({
-                  type: 'PAYMENT_SUCCESS',
-                  data: paymentData
-                }, '*');
-              } catch (error) {
-                console.error('Error sending message to parent:', error);
-              }
-            };
-            
-            sendMessage();
-            setTimeout(sendMessage, 100);
-            
-            setTimeout(() => {
-              window.close();
-            }, 500);
-          }
           setLoading(false);
+          console.log('✅ Payment verified as successful');
+          
+          // Send success message to parent window if opened as popup
+          if (isPopup) {
+            console.log('Sending payment success message to parent window');
+            window.opener.postMessage({
+              type: 'PAYMENT_COMPLETED',
+              transactionId,
+              status: 'success',
+              data: paymentData
+            }, window.location.origin);
+            
+            // Auto-close popup after 3 seconds
+            setTimeout(() => {
+              console.log('Auto-closing payment popup window');
+              window.close();
+            }, 3000);
+          }
         } else if (paymentData.status === 'FAILED') {
-          // Payment explicitly failed
           setError('Payment failed. Please try again.');
           setLoading(false);
+          console.log('❌ Payment failed');
           
+          // Send failure message to parent if popup
           if (isPopup) {
-            try {
-              window.opener.postMessage({
-                type: 'PAYMENT_ERROR',
-                error: 'Payment failed'
-              }, window.location.origin);
-              
-              window.opener.postMessage({
-                type: 'PAYMENT_ERROR',
-                error: 'Payment failed'
-              }, '*');
-            } catch (error) {
-              console.error('Error sending error message to parent:', error);
-            }
-            
-            setTimeout(() => {
-              window.close();
-            }, 1000);
+            window.opener.postMessage({
+              type: 'PAYMENT_COMPLETED',
+              transactionId,
+              status: 'failed',
+              error: 'Payment failed'
+            }, window.location.origin);
           }
         } else if (paymentData.status === 'INITIATED' || paymentData.status === 'PENDING') {
           // Payment is still in progress, retry after a delay
           if (currentRetry < maxRetries) {
+            console.log(`Payment still pending, retrying in 3 seconds... (${currentRetry + 1}/${maxRetries})`);
             setTimeout(() => {
               setRetryCount(currentRetry + 1);
-              checkPaymentStatusWithRetry(transactionId, isPopup, currentRetry + 1);
-            }, 2000); // Wait 2 seconds before retrying
+              checkPaymentStatusWithRetry(transactionId, currentRetry + 1);
+            }, 3000);
           } else {
-            // Max retries reached, show error
-            setError('Payment verification timed out. Please check your transaction status.');
+            setError('Payment verification timed out. Please check your transaction status in the dashboard.');
             setLoading(false);
+            console.log('Payment verification timed out');
             
+            // Send timeout message to parent if popup
             if (isPopup) {
-              try {
-                window.opener.postMessage({
-                  type: 'PAYMENT_ERROR',
-                  error: 'Payment verification timed out'
-                }, window.location.origin);
-                
-                window.opener.postMessage({
-                  type: 'PAYMENT_ERROR',
-                  error: 'Payment verification timed out'
-                }, '*');
-              } catch (error) {
-                console.error('Error sending error message to parent:', error);
-              }
-              
-              setTimeout(() => {
-                window.close();
-              }, 2000);
+              window.opener.postMessage({
+                type: 'PAYMENT_COMPLETED',
+                transactionId,
+                status: 'timeout',
+                error: 'Payment verification timed out'
+              }, window.location.origin);
             }
           }
         } else {
-          // Unknown status
           setError(`Unknown payment status: ${paymentData.status}`);
           setLoading(false);
+          console.log('Unknown payment status:', paymentData.status);
+          
+          // Send error message to parent if popup
+          if (isPopup) {
+            window.opener.postMessage({
+              type: 'PAYMENT_COMPLETED',
+              transactionId,
+              status: 'failed',
+              error: `Unknown payment status: ${paymentData.status}`
+            }, window.location.origin);
+          }
         }
       } else {
-        setError('Payment verification failed');
+        console.error('Failed to get payment status:', result);
+        setError('Failed to verify payment status');
         setLoading(false);
         
+        // Send error message to parent if popup
         if (isPopup) {
-          try {
-            window.opener.postMessage({
-              type: 'PAYMENT_ERROR',
-              error: 'Payment verification failed'
-            }, window.location.origin);
-            
-            window.opener.postMessage({
-              type: 'PAYMENT_ERROR',
-              error: 'Payment verification failed'
-            }, '*');
-          } catch (error) {
-            console.error('Error sending error message to parent:', error);
-          }
-          
-          setTimeout(() => {
-            window.close();
-          }, 1000);
+          window.opener.postMessage({
+            type: 'PAYMENT_COMPLETED',
+            transactionId,
+            status: 'failed',
+            error: 'Failed to verify payment status'
+          }, window.location.origin);
         }
       }
     } catch (err) {
@@ -180,46 +188,43 @@ const PaymentSuccess = () => {
       
       // Retry on error if we haven't reached max retries
       if (currentRetry < maxRetries) {
+        console.log(`Error checking payment status, retrying in 3 seconds... (${currentRetry + 1}/${maxRetries})`);
         setTimeout(() => {
           setRetryCount(currentRetry + 1);
-          checkPaymentStatusWithRetry(transactionId, isPopup, currentRetry + 1);
-        }, 2000);
+          checkPaymentStatusWithRetry(transactionId, currentRetry + 1);
+        }, 3000);
       } else {
-        setError('Failed to verify payment status');
+        setError('Failed to verify payment status after multiple attempts');
         setLoading(false);
         
+        // Send error message to parent if popup
         if (isPopup) {
-          try {
-            window.opener.postMessage({
-              type: 'PAYMENT_ERROR',
-              error: 'Payment verification failed'
-            }, window.location.origin);
-            
-            window.opener.postMessage({
-              type: 'PAYMENT_ERROR',
-              error: 'Payment verification failed'
-            }, '*');
-          } catch (error) {
-            console.error('Error sending error message to parent:', error);
-          }
-          
-          setTimeout(() => {
-            window.close();
-          }, 1000);
+          window.opener.postMessage({
+            type: 'PAYMENT_COMPLETED',
+            transactionId,
+            status: 'failed',
+            error: 'Failed to verify payment status after multiple attempts'
+          }, window.location.origin);
         }
       }
     }
   };
 
-  const handleGoToWallet = () => {
-    // If this is a popup, close it and let parent handle navigation
-    if (window.opener && window.opener !== window) {
+  const handleGoToDashboard = () => {
+    if (isPopup) {
+      // If it's a popup, close it and send message to parent
       window.opener.postMessage({
-        type: 'NAVIGATE_TO_WALLET'
+        type: 'NAVIGATE_TO_DASHBOARD'
       }, window.location.origin);
       window.close();
     } else {
       navigate('/dashboard');
+    }
+  };
+
+  const handleClosePopup = () => {
+    if (isPopup) {
+      window.close();
     }
   };
 
@@ -239,6 +244,11 @@ const PaymentSuccess = () => {
               Checking status... ({retryCount}/{maxRetries})
             </p>
           )}
+          {isPopup && (
+            <p className="text-xs text-purple-600 mt-4">
+              This window will close automatically when verification is complete
+            </p>
+          )}
         </div>
       </div>
     );
@@ -256,12 +266,22 @@ const PaymentSuccess = () => {
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Payment Error</h1>
             <p className="text-gray-600 mb-6">{error}</p>
-            <button
-              onClick={handleGoToWallet}
-              className="w-full bg-purple-600 text-white py-3 rounded-xl font-medium hover:bg-purple-700 transition-colors"
-            >
-              Go to Dashboard
-            </button>
+            <div className="space-y-3">
+              <button
+                onClick={handleGoToDashboard}
+                className="w-full bg-purple-600 text-white py-3 rounded-xl font-medium hover:bg-purple-700 transition-colors"
+              >
+                {isPopup ? 'Go to Dashboard' : 'Go to Dashboard'}
+              </button>
+              {isPopup && (
+                <button
+                  onClick={handleClosePopup}
+                  className="w-full bg-gray-200 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+                >
+                  Close Window
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -300,12 +320,30 @@ const PaymentSuccess = () => {
             </div>
           )}
           
-          <button
-            onClick={handleGoToWallet}
-            className="w-full bg-purple-600 text-white py-3 rounded-xl font-medium hover:bg-purple-700 transition-colors"
-          >
-            {window.opener ? 'Close & Go to Wallet' : 'Go to Wallet'}
-          </button>
+          {isPopup && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+              <p className="text-sm text-blue-800">
+                🎉 Success! This window will close automatically in a few seconds.
+              </p>
+            </div>
+          )}
+          
+          <div className="space-y-3">
+            <button
+              onClick={handleGoToDashboard}
+              className="w-full bg-purple-600 text-white py-3 rounded-xl font-medium hover:bg-purple-700 transition-colors"
+            >
+              {isPopup ? 'Go to Dashboard' : 'Go to Dashboard'}
+            </button>
+            {isPopup && (
+              <button
+                onClick={handleClosePopup}
+                className="w-full bg-gray-200 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+              >
+                Close Window
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

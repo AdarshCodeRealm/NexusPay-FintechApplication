@@ -1,15 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { 
   getWalletBalance, 
   addMoneyToWallet, 
   withdrawMoney, 
   getTransactionHistory,
-  initiatePhonePePayment,
-  checkPaymentStatus,
   clearError,
-  clearPaymentUrl,
-  downloadTransactionReceipt
+  downloadTransactionReceipt,
+  initiatePhonePePayment,
+  checkPaymentStatus
 } from '../store/slices/walletSlice';
 import { Button } from './ui/button';
 
@@ -20,10 +19,9 @@ const WalletComponent = () => {
     transactions, 
     operationLoading, 
     paymentLoading,
-    paymentUrl,
-    pendingTransactionId,
     error, 
-    transactionsPagination 
+    transactionsPagination,
+    pendingTransactionId
   } = useSelector((state) => state.wallet);
   
   const { user } = useSelector((state) => state.auth);
@@ -39,19 +37,150 @@ const WalletComponent = () => {
     ifscCode: '',
     accountHolderName: ''
   });
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [paymentDetails, setPaymentDetails] = useState(null);
   const [paymentWindow, setPaymentWindow] = useState(null);
-  const [pollingInterval, setPollingInterval] = useState(null);
+  const [paymentPollingActive, setPaymentPollingActive] = useState(false);
 
   useEffect(() => {
     dispatch(getWalletBalance());
     dispatch(getTransactionHistory({ page: 1, limit: 10 }));
   }, [dispatch]);
 
-  // Auto-hide success toast after 5 seconds
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data.type === 'PAYMENT_COMPLETED') {
+        const { transactionId, status } = event.data;
+        console.log('Payment message received:', { transactionId, status });
+        
+        if (status === 'success') {
+          handlePaymentVerification(transactionId);
+        } else {
+          handlePaymentFailure();
+        }
+        
+        if (paymentWindow && !paymentWindow.closed) {
+          paymentWindow.close();
+        }
+        setPaymentWindow(null);
+        setPaymentPollingActive(false);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [paymentWindow]);
+
+  useEffect(() => {
+    let pollInterval;
+    
+    if (pendingTransactionId && paymentPollingActive) {
+      console.log('Starting payment polling for transaction:', pendingTransactionId);
+      
+      pollInterval = setInterval(async () => {
+        try {
+          console.log('Checking payment status...');
+          const result = await dispatch(checkPaymentStatus(pendingTransactionId));
+          
+          if (result.type === 'wallet/checkPaymentStatus/fulfilled') {
+            const paymentData = result.payload.data;
+            console.log('Payment status check result:', paymentData);
+            
+            if (paymentData.status === 'SUCCESS') {
+              console.log('Payment successful! Stopping polling.');
+              clearInterval(pollInterval);
+              handlePaymentSuccess(paymentData);
+              setPaymentPollingActive(false);
+              
+              if (paymentWindow && !paymentWindow.closed) {
+                paymentWindow.close();
+              }
+              setPaymentWindow(null);
+            } else if (paymentData.status === 'FAILED') {
+              console.log('Payment failed. Stopping polling.');
+              clearInterval(pollInterval);
+              handlePaymentFailure();
+              setPaymentPollingActive(false);
+              
+              if (paymentWindow && !paymentWindow.closed) {
+                paymentWindow.close();
+              }
+              setPaymentWindow(null);
+            } else {
+              console.log('Payment still pending:', paymentData.status);
+            }
+          }
+        } catch (error) {
+          console.error('Error checking payment status:', error);
+        }
+      }, 3000);
+
+      setTimeout(() => {
+        if (pollInterval) {
+          console.log('Payment polling timeout reached');
+          clearInterval(pollInterval);
+          setPaymentPollingActive(false);
+          setSuccessMessage('Payment verification timeout. Please check your transaction history or try again.');
+          setShowSuccessToast(true);
+        }
+      }, 600000);
+    }
+
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [pendingTransactionId, paymentPollingActive, dispatch, paymentWindow]);
+
+  const handlePaymentVerification = async (transactionId) => {
+    console.log('Verifying payment for transaction:', transactionId);
+    try {
+      const result = await dispatch(checkPaymentStatus(transactionId));
+      
+      if (result.type === 'wallet/checkPaymentStatus/fulfilled') {
+        const paymentData = result.payload.data;
+        
+        if (paymentData.status === 'SUCCESS') {
+          handlePaymentSuccess(paymentData);
+        } else {
+          handlePaymentFailure();
+        }
+      }
+    } catch (error) {
+      console.error('Payment verification failed:', error);
+      handlePaymentFailure();
+    }
+  };
+
+  const handlePaymentSuccess = (paymentData) => {
+    console.log('🎉 Payment completed successfully!', paymentData);
+    
+    // Redirect to payment success page with transaction details
+    window.location.href = `/payment-success?id=${paymentData.transactionId}&status=success&amount=${paymentData.amount}`;
+    
+    setSuccessMessage(`Payment successful! ₹${paymentData.amount} has been added to your wallet.`);
+    setPaymentDetails({
+      transactionId: paymentData.transactionId,
+      amount: paymentData.amount,
+      timestamp: new Date().toISOString()
+    });
+    setShowSuccessToast(true);
+    
+    dispatch(getWalletBalance());
+    dispatch(getTransactionHistory({ page: 1, limit: 10 }));
+  };
+
+  const handlePaymentFailure = () => {
+    console.log('❌ Payment failed or was cancelled');
+    
+    setSuccessMessage('Payment failed or was cancelled. Please try again.');
+    setShowSuccessToast(true);
+  };
+
   useEffect(() => {
     if (showSuccessToast) {
       const timer = setTimeout(() => {
@@ -62,221 +191,6 @@ const WalletComponent = () => {
       return () => clearTimeout(timer);
     }
   }, [showSuccessToast]);
-
-  // Polling function to check payment status
-  const pollPaymentStatus = useCallback(async (transactionId) => {
-    try {
-      const result = await dispatch(checkPaymentStatus(transactionId));
-      
-      if (result.payload && result.payload.success) {
-        const paymentData = result.payload.data;
-        
-        // Check if payment is completed (SUCCESS or FAILED)
-        if (paymentData.status === 'SUCCESS') {
-          // Close popup window FIRST
-          if (paymentWindow && !paymentWindow.closed) {
-            paymentWindow.close();
-          }
-          
-          // Then handle success
-          setShowPaymentModal(false);
-          setPaymentDetails(paymentData);
-          setSuccessMessage(`Payment successful! ₹${paymentData.amount} added to your wallet.`);
-          setShowSuccessToast(true);
-          
-          // Refresh balance and transactions
-          dispatch(getWalletBalance());
-          dispatch(getTransactionHistory({ page: 1, limit: 10 }));
-          dispatch(clearPaymentUrl());
-          
-          // Clear polling
-          if (pollingInterval) {
-            clearInterval(pollingInterval);
-            setPollingInterval(null);
-          }
-          
-          return true; // Payment completed
-        } else if (paymentData.status === 'FAILED') {
-          // Close popup window FIRST
-          if (paymentWindow && !paymentWindow.closed) {
-            paymentWindow.close();
-          }
-          
-          // Then handle failure
-          setShowPaymentModal(false);
-          setSuccessMessage('Payment failed. Please try again.');
-          setShowSuccessToast(true);
-          
-          dispatch(clearPaymentUrl());
-          
-          // Clear polling
-          if (pollingInterval) {
-            clearInterval(pollingInterval);
-            setPollingInterval(null);
-          }
-          
-          return true; // Payment completed (failed)
-        }
-      }
-      
-      return false; // Payment still pending
-    } catch (error) {
-      console.error('Error polling payment status:', error);
-      
-      // Close popup on error too
-      if (paymentWindow && !paymentWindow.closed) {
-        paymentWindow.close();
-      }
-      
-      return false;
-    }
-  }, [dispatch, paymentWindow, pollingInterval]);
-
-  // Handle payment URL redirect with polling
-  useEffect(() => {
-    if (paymentUrl && pendingTransactionId) {
-      // Prevent multiple windows if one is already open
-      if (paymentWindow && !paymentWindow.closed) {
-        return;
-      }
-      
-      setShowPaymentModal(true);
-      
-      // Open payment URL in a new window
-      const newPaymentWindow = window.open(
-        paymentUrl, 
-        'phonepe_payment', 
-        'width=600,height=700,scrollbars=yes,resizable=yes,location=yes,status=yes'
-      );
-      
-      setPaymentWindow(newPaymentWindow);
-      
-      // Clear payment URL immediately to prevent reopening
-      dispatch(clearPaymentUrl());
-      
-      // Listen for messages from popup window
-      const handleMessage = (event) => {
-        // Verify origin for security
-        if (event.origin !== window.location.origin && event.origin !== '*') {
-          return;
-        }
-        
-        if (event.data.type === 'PAYMENT_SUCCESS') {
-          // Close popup window
-          if (newPaymentWindow && !newPaymentWindow.closed) {
-            newPaymentWindow.close();
-          }
-          
-          // Handle successful payment
-          setShowPaymentModal(false);
-          setSuccessMessage(`Payment successful! ₹${event.data.data.amount} added to your wallet.`);
-          setShowSuccessToast(true);
-          
-          // Update wallet balance and transaction history
-          dispatch(getWalletBalance());
-          dispatch(getTransactionHistory({ page: 1, limit: 10 }));
-          
-          // Clear polling if active
-          if (pollingInterval) {
-            clearInterval(pollingInterval);
-            setPollingInterval(null);
-          }
-          
-          // Reset form
-          setAddMoneyForm({ amount: '' });
-        } else if (event.data.type === 'PAYMENT_ERROR') {
-          // Close popup window
-          if (newPaymentWindow && !newPaymentWindow.closed) {
-            newPaymentWindow.close();
-          }
-          
-          // Handle payment error
-          setShowPaymentModal(false);
-          setSuccessMessage(event.data.error || 'Payment failed. Please try again.');
-          setShowSuccessToast(true);
-          
-          // Clear polling if active
-          if (pollingInterval) {
-            clearInterval(pollingInterval);
-            setPollingInterval(null);
-          }
-        } else if (event.data.type === 'NAVIGATE_TO_WALLET') {
-          // Close popup window
-          if (newPaymentWindow && !newPaymentWindow.closed) {
-            newPaymentWindow.close();
-          }
-          
-          // Update wallet data
-          dispatch(getWalletBalance());
-          dispatch(getTransactionHistory({ page: 1, limit: 10 }));
-          setShowPaymentModal(false);
-        }
-      };
-      
-      window.addEventListener('message', handleMessage);
-      
-      // Start polling for payment status as backup
-      const intervalId = setInterval(async () => {
-        try {
-          const isCompleted = await pollPaymentStatus();
-          if (isCompleted) {
-            clearInterval(intervalId);
-            setPollingInterval(null);
-          }
-        } catch (error) {
-          console.error('Polling error:', error);
-        }
-      }, 3000);
-      
-      setPollingInterval(intervalId);
-      
-      // Check if window is closed manually
-      const checkWindowClosed = setInterval(() => {
-        if (newPaymentWindow.closed) {
-          clearInterval(checkWindowClosed);
-          clearInterval(intervalId);
-          setPollingInterval(null);
-          setShowPaymentModal(false);
-          window.removeEventListener('message', handleMessage);
-        }
-      }, 1000);
-      
-      // Cleanup function
-      return () => {
-        window.removeEventListener('message', handleMessage);
-        clearInterval(checkWindowClosed);
-        if (intervalId) {
-          clearInterval(intervalId);
-        }
-      };
-    }
-  }, [paymentUrl, pendingTransactionId, dispatch, paymentWindow, pollingInterval, pollPaymentStatus]);
-
-  // Cleanup on component unmount
-  useEffect(() => {
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-      if (paymentWindow && !paymentWindow.closed) {
-        paymentWindow.close();
-      }
-    };
-  }, [pollingInterval, paymentWindow]);
-
-  const handlePaymentComplete = useCallback(async () => {
-    setShowPaymentModal(false);
-    if (pendingTransactionId) {
-      await pollPaymentStatus(pendingTransactionId);
-    }
-    dispatch(clearPaymentUrl());
-    
-    // Clear polling
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      setPollingInterval(null);
-    }
-  }, [dispatch, pendingTransactionId, pollPaymentStatus, pollingInterval]);
 
   const handlePhonePePayment = async (e) => {
     e.preventDefault();
@@ -296,10 +210,35 @@ const WalletComponent = () => {
       callbackUrl: `${window.location.origin}/payment-success`
     };
 
+    console.log('Initiating PhonePe payment with data:', paymentData);
+
     const result = await dispatch(initiatePhonePePayment(paymentData));
+    console.log("After Initiate : ", result)
     
     if (result.type === 'wallet/initiatePhonePePayment/fulfilled') {
-      setAddMoneyForm({ amount: '', paymentMethod: 'phonepe' });
+      const { paymentUrl, transactionId } = result.payload.data;
+      
+      console.log('Payment initiation successful:', { paymentUrl, transactionId });
+      
+      const newWindow = window.open(paymentUrl, '_blank', 'width=800,height=700,scrollbars=yes,resizable=yes');
+      
+      if (newWindow && !newWindow.closed) {
+        setPaymentWindow(newWindow);
+        setPaymentPollingActive(true);
+        
+        console.log('Payment window opened, starting verification polling...');
+        
+        setAddMoneyForm({ amount: '', paymentMethod: 'phonepe' });
+        
+        setSuccessMessage('Payment window opened. Complete your payment in the new tab. We are monitoring your payment status...');
+        setShowSuccessToast(true);
+      } else {
+        console.log('❌ Popup was blocked');
+        setSuccessMessage('Popup blocked! Please allow popups for this site and try again.');
+        setShowSuccessToast(true);
+      }
+    } else {
+      console.log('❌ Payment initiation failed:', result);
     }
   };
 
@@ -309,7 +248,6 @@ const WalletComponent = () => {
     if (addMoneyForm.paymentMethod === 'phonepe') {
       handlePhonePePayment(e);
     } else {
-      // Fallback to original method for other payment methods
       dispatch(clearError());
       await dispatch(addMoneyToWallet({
         amount: parseFloat(addMoneyForm.amount),
@@ -427,30 +365,6 @@ const WalletComponent = () => {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
           {error}
-        </div>
-      )}
-
-      {/* Payment Processing Modal */}
-      {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-purple-600 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Processing Payment</h3>
-              <p className="text-gray-600 mb-4">Please complete the payment in the PhonePe window</p>
-              <Button 
-                onClick={handlePaymentComplete}
-                className="w-full bg-gray-100 text-gray-700 hover:bg-gray-200"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
         </div>
       )}
 

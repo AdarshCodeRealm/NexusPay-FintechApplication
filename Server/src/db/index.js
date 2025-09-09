@@ -49,8 +49,7 @@ const sequelize = new Sequelize(
     },
     dialectOptions: {
       connectTimeout: 30000,
-      acquireTimeout: 30000,
-      timeout: 30000,
+      // Removed acquireTimeout and timeout from dialectOptions as they're invalid for MySQL2
       // SSL configuration for RDS if needed
       ssl: process.env.NODE_ENV === 'production' ? {
         require: false,
