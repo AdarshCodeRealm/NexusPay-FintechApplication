@@ -85,6 +85,32 @@ const User = sequelize.define('User', {
     defaultValue: 0.00,
     field: 'wallet_frozen_balance', // Map to database column name
   },
+  // Enhanced wallet features - Now enabled since database columns exist
+  walletDailyLimit: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 50000.00,
+    field: 'wallet_daily_limit',
+  },
+  walletMonthlyLimit: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 1000000.00,
+    field: 'wallet_monthly_limit',
+  },
+  dailySpent: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 0.00,
+    field: 'daily_spent',
+  },
+  monthlySpent: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 0.00,
+    field: 'monthly_spent',
+  },
+  lastTransactionDate: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'last_transaction_date',
+  },
   kycStatus: {
     type: DataTypes.ENUM('pending', 'submitted', 'approved', 'rejected'),
     defaultValue: 'pending',

@@ -120,11 +120,11 @@ ${columns}${fkConstraints}
                     name: '002_create_additional_tables',
                     queries: this.getAdditionalTablesMigration()
                 },
+                {
+                    name: '003_add_wallet_enhancements',
+                    queries: this.getWalletEnhancementsMigration()
+                }
                 // Future migrations can be added here
-                // {
-                //     name: '003_add_user_preferences',
-                //     queries: ['ALTER TABLE users ADD COLUMN new_field VARCHAR(255) NULL']
-                // }
             ];
 
             // Execute each migration
@@ -209,6 +209,24 @@ ${columns}${fkConstraints}
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_setting_key (setting_key)
             )`
+        ];
+    }
+
+    // Migration 003: Add wallet enhancement fields
+    getWalletEnhancementsMigration() {
+        return [
+            // Add new wallet fields to users table
+            `ALTER TABLE users 
+             ADD COLUMN IF NOT EXISTS wallet_daily_limit DECIMAL(15, 2) DEFAULT 50000.00,
+             ADD COLUMN IF NOT EXISTS wallet_monthly_limit DECIMAL(15, 2) DEFAULT 1000000.00,
+             ADD COLUMN IF NOT EXISTS daily_spent DECIMAL(15, 2) DEFAULT 0.00,
+             ADD COLUMN IF NOT EXISTS monthly_spent DECIMAL(15, 2) DEFAULT 0.00,
+             ADD COLUMN IF NOT EXISTS last_transaction_date TIMESTAMP NULL`,
+            
+            // Add indexes for better performance
+            `CREATE INDEX IF NOT EXISTS idx_users_last_transaction ON users(last_transaction_date)`,
+            `CREATE INDEX IF NOT EXISTS idx_users_daily_spent ON users(daily_spent)`,
+            `CREATE INDEX IF NOT EXISTS idx_users_monthly_spent ON users(monthly_spent)`
         ];
     }
 }

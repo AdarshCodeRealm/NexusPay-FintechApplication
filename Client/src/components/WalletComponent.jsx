@@ -156,11 +156,8 @@ const WalletComponent = () => {
     }
   };
 
-  const handlePaymentSuccess = (paymentData) => {
+  const handlePaymentSuccess = async (paymentData) => {
     console.log('🎉 Payment completed successfully!', paymentData);
-    
-    // Redirect to payment success page with transaction details
-    window.location.href = `/payment-success?id=${paymentData.transactionId}&status=success&amount=${paymentData.amount}`;
     
     setSuccessMessage(`Payment successful! ₹${paymentData.amount} has been added to your wallet.`);
     setPaymentDetails({
@@ -170,8 +167,61 @@ const WalletComponent = () => {
     });
     setShowSuccessToast(true);
     
-    dispatch(getWalletBalance());
-    dispatch(getTransactionHistory({ page: 1, limit: 10 }));
+    // Immediate refresh with retry logic for wallet balance and transactions
+    const refreshData = async (attempt = 1, maxAttempts = 5) => {
+      try {
+        console.log(`🔄 Refreshing wallet data (attempt ${attempt}/${maxAttempts})`);
+        
+        // Refresh both balance and transaction history
+        await Promise.all([
+          dispatch(getWalletBalance()),
+          dispatch(getTransactionHistory({ page: 1, limit: 10 }))
+        ]);
+        
+        console.log('✅ Wallet data refreshed successfully');
+        
+        // After successful refresh, redirect to success page
+        if (attempt === 1) {
+          setTimeout(() => {
+            window.location.href = `/payment-success?id=${paymentData.transactionId}&status=success&amount=${paymentData.amount}`;
+          }, 2000);
+        }
+        
+      } catch (error) {
+        console.error(`❌ Failed to refresh wallet data (attempt ${attempt}):`, error);
+        
+        if (attempt < maxAttempts) {
+          console.log(`🔄 Retrying in 2 seconds...`);
+          setTimeout(() => refreshData(attempt + 1, maxAttempts), 2000);
+        } else {
+          console.error('💥 Failed to refresh wallet data after all attempts');
+          // Still redirect to success page even if refresh fails
+          window.location.href = `/payment-success?id=${paymentData.transactionId}&status=success&amount=${paymentData.amount}`;
+        }
+      }
+    };
+    
+    // Start immediate refresh
+    refreshData();
+    
+    // Also schedule periodic refreshes for the next 30 seconds
+    const intervalId = setInterval(async () => {
+      try {
+        await Promise.all([
+          dispatch(getWalletBalance()),
+          dispatch(getTransactionHistory({ page: 1, limit: 10 }))
+        ]);
+        console.log('🔄 Periodic wallet refresh completed');
+      } catch (error) {
+        console.error('❌ Periodic refresh failed:', error);
+      }
+    }, 5000);
+    
+    // Clear interval after 30 seconds
+    setTimeout(() => {
+      clearInterval(intervalId);
+      console.log('🛑 Stopped periodic wallet refresh');
+    }, 30000);
   };
 
   const handlePaymentFailure = () => {
@@ -559,9 +609,11 @@ const WalletComponent = () => {
                     <span className={`text-xl ${
                       transaction.amount > 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {transaction.type === 'wallet_topup' ? '💰' : 
-                       transaction.type === 'wallet_transfer' ? '💸' : 
-                       transaction.type === 'withdrawal' ? '🏦' : '📱'}
+                      {/* Updated transaction type mapping to match backend schema */}
+                      {transaction.transactionType === 'deposit' || transaction.type === 'wallet_topup' ? '💰' : 
+                       transaction.transactionType === 'transfer' || transaction.type === 'wallet_transfer' ? '💸' : 
+                       transaction.transactionType === 'withdrawal' || transaction.type === 'withdrawal' ? '🏦' : 
+                       transaction.transactionType === 'payment' ? '💳' : '📱'}
                     </span>
                   </div>
                   <div className="flex-1">
@@ -616,9 +668,10 @@ const WalletComponent = () => {
                       <span className={`text-xl ${
                         transaction.amount > 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {transaction.type === 'wallet_topup' ? '💰' : 
-                         transaction.type === 'wallet_transfer' ? '💸' : 
-                         transaction.type === 'withdrawal' ? '🏦' : '📱'}
+                        {transaction.transactionType === 'deposit' || transaction.type === 'wallet_topup' ? '💰' : 
+                         transaction.transactionType === 'transfer' || transaction.type === 'wallet_transfer' ? '💸' : 
+                         transaction.transactionType === 'withdrawal' || transaction.type === 'withdrawal' ? '🏦' : 
+                         transaction.transactionType === 'payment' ? '💳' : '📱'}
                       </span>
                     </div>
                     <div>

@@ -10,6 +10,8 @@ import {
   logoutUser,
   refreshAccessToken,
   getCurrentUser,
+  sendRegistrationOTP,
+  verifyRegistrationOTP,
 } from "../controllers/auth.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { initializeDatabase } from "../middlewares/database.middleware.js";
@@ -78,6 +80,8 @@ router.use(validateRequestMethod);
 
 // Public routes
 router.route("/register").post(registerUser);
+router.route("/send-registration-otp").post(sendRegistrationOTP);
+router.route("/verify-registration-otp").post(verifyRegistrationOTP);
 router.route("/login").post(loginUser);
 router.route("/login-phone").post(loginWithPhone);
 router.route("/send-otp").post(sendLoginOTP);

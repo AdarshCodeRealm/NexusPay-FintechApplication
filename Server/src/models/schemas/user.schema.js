@@ -46,6 +46,11 @@ export const UserSchema = {
         // Wallet fields
         wallet_balance: 'DECIMAL(15, 2) DEFAULT 0.00',
         wallet_frozen_balance: 'DECIMAL(15, 2) DEFAULT 0.00',
+        wallet_daily_limit: 'DECIMAL(15, 2) DEFAULT 50000.00',
+        wallet_monthly_limit: 'DECIMAL(15, 2) DEFAULT 1000000.00',
+        daily_spent: 'DECIMAL(15, 2) DEFAULT 0.00',
+        monthly_spent: 'DECIMAL(15, 2) DEFAULT 0.00',
+        last_transaction_date: 'TIMESTAMP NULL',
         
         // Role and business info
         role: 'ENUM("user", "retailer", "distributor", "admin") DEFAULT "user"',

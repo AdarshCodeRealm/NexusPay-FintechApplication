@@ -154,6 +154,42 @@ export const downloadTransactionReceipt = createAsyncThunk(
   }
 );
 
+export const secureTransferMoney = createAsyncThunk(
+  'wallet/secureTransfer',
+  async (transferData, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/wallet/secure-transfer', transferData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Secure transfer failed');
+    }
+  }
+);
+
+export const generateTransferOTP = createAsyncThunk(
+  'wallet/generateTransferOTP',
+  async (otpData, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/wallet/transfer-otp', otpData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to generate OTP');
+    }
+  }
+);
+
+export const getTransferLimits = createAsyncThunk(
+  'wallet/getTransferLimits',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await api.get('/wallet/transfer-limits');
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch transfer limits');
+    }
+  }
+);
+
 const walletSlice = createSlice({
   name: 'wallet',
   initialState: {
@@ -175,6 +211,9 @@ const walletSlice = createSlice({
     pendingTransactionId: null,
     paymentHistory: [],
     paymentLoading: false,
+    transferLimits: null,
+    otpSent: false,
+    secureTransferLoading: false,
   },
   reducers: {
     clearError: (state) => {
@@ -193,6 +232,12 @@ const walletSlice = createSlice({
     },
     setPendingTransaction: (state, action) => {
       state.pendingTransactionId = action.payload;
+    },
+    clearTransferOTP: (state) => {
+      state.otpSent = false;
+    },
+    setTransferLimits: (state, action) => {
+      state.transferLimits = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -309,10 +354,12 @@ const walletSlice = createSlice({
       })
       .addCase(checkPaymentStatus.fulfilled, (state, action) => {
         state.paymentLoading = false;
-        if (action.payload.data.status === 'SUCCESS') {
-          // Payment successful, refresh balance
-          state.balance = action.payload.data.amount + state.balance;
-        }
+        // Remove the automatic balance addition here since the backend already updates the wallet
+        // and we refresh the balance from the server
+        // REMOVED: state.balance = action.payload.data.amount + state.balance;
+        
+        // The wallet balance will be updated when getWalletBalance is called
+        // This prevents double addition of the payment amount
       })
       .addCase(checkPaymentStatus.rejected, (state, action) => {
         state.paymentLoading = false;
@@ -331,6 +378,50 @@ const walletSlice = createSlice({
       .addCase(getPaymentHistory.rejected, (state, action) => {
         state.paymentLoading = false;
         state.error = action.payload;
+      })
+      
+      // Secure Transfer Money
+      .addCase(secureTransferMoney.pending, (state) => {
+        state.secureTransferLoading = true;
+        state.error = null;
+      })
+      .addCase(secureTransferMoney.fulfilled, (state, action) => {
+        state.secureTransferLoading = false;
+        state.balance = action.payload.data.senderNewBalance;
+        state.lastTransaction = action.payload.data;
+        state.otpSent = false;
+      })
+      .addCase(secureTransferMoney.rejected, (state, action) => {
+        state.secureTransferLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Generate Transfer OTP
+      .addCase(generateTransferOTP.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(generateTransferOTP.fulfilled, (state) => {
+        state.operationLoading = false;
+        state.otpSent = true;
+      })
+      .addCase(generateTransferOTP.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Get Transfer Limits
+      .addCase(getTransferLimits.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(getTransferLimits.fulfilled, (state, action) => {
+        state.loading = false;
+        state.transferLimits = action.payload.data;
+      })
+      .addCase(getTransferLimits.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
       });
   },
 });
@@ -340,6 +431,8 @@ export const {
   clearLastTransaction, 
   updateBalance, 
   clearPaymentUrl, 
-  setPendingTransaction 
+  setPendingTransaction,
+  clearTransferOTP,
+  setTransferLimits
 } = walletSlice.actions;
 export default walletSlice.reducer;

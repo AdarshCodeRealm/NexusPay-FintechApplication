@@ -86,6 +86,31 @@ export const verifyOTP = createAsyncThunk(
   }
 );
 
+export const sendRegistrationOTP = createAsyncThunk(
+  'auth/sendRegistrationOTP',
+  async (userData, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/auth/send-registration-otp', userData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to send registration OTP');
+    }
+  }
+);
+
+export const verifyRegistrationOTP = createAsyncThunk(
+  'auth/verifyRegistrationOTP',
+  async (otpData, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/auth/verify-registration-otp', otpData);
+      localStorage.setItem('accessToken', response.data.data.accessToken);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Registration OTP verification failed');
+    }
+  }
+);
+
 export const logoutUser = createAsyncThunk(
   'auth/logout',
   async (_, { rejectWithValue }) => {
@@ -269,6 +294,37 @@ const authSlice = createSlice({
         api.defaults.headers.common['Authorization'] = `Bearer ${action.payload.data.accessToken}`;
       })
       .addCase(verifyOTP.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+
+      // Send Registration OTP
+      .addCase(sendRegistrationOTP.pending, (state) => {
+        state.otpLoading = true;
+        state.error = null;
+      })
+      .addCase(sendRegistrationOTP.fulfilled, (state) => {
+        state.otpLoading = false;
+        state.otpSent = true;
+      })
+      .addCase(sendRegistrationOTP.rejected, (state, action) => {
+        state.otpLoading = false;
+        state.error = action.payload;
+      })
+
+      // Verify Registration OTP
+      .addCase(verifyRegistrationOTP.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(verifyRegistrationOTP.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload.data.user;
+        state.isAuthenticated = true;
+        state.otpSent = false;
+        api.defaults.headers.common['Authorization'] = `Bearer ${action.payload.data.accessToken}`;
+      })
+      .addCase(verifyRegistrationOTP.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
       })

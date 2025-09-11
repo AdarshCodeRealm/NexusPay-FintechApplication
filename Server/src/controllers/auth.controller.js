@@ -421,6 +421,120 @@ const getCurrentUser = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, user, "User fetched successfully"));
 });
 
+const sendRegistrationOTP = asyncHandler(async (req, res) => {
+    const { fullName, email, username, password, phone } = req.body;
+
+    // Validate all required fields
+    if ([fullName, email, username, password, phone].some((field) => field?.trim() === "")) {
+        throw new ApiError(400, "All fields are required");
+    }
+
+    // Check if user already exists
+    const existedUser = await User.findOne({
+        where: {
+            [Op.or]: [{ username }, { email }, { phone }]
+        }
+    });
+
+    if (existedUser) {
+        throw new ApiError(409, "User with email, username or phone already exists");
+    }
+
+    // Validate phone number format
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(phone.trim())) {
+        throw new ApiError(400, "Please provide a valid 10-digit phone number");
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+        throw new ApiError(400, "Please enter a valid email address");
+    }
+
+    // Store registration data temporarily in session/cache (for now, we'll create a temporary user)
+    // In production, you might want to use Redis or another caching solution
+    const tempUser = await User.create({
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        username: username.trim().toLowerCase(),
+        password,
+        phone: phone.trim(),
+        isVerified: false, // Mark as unverified until OTP is confirmed
+        otpCode: "123456", // Use dummy OTP for now
+        otpExpiry: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+    });
+
+    console.log(`🔐 Registration OTP for ${phone}: 123456 (expires in 10 minutes)`);
+
+    return res.status(200).json(
+        new ApiResponse(200, { 
+            message: "Registration OTP sent successfully",
+            // In development, return the OTP for testing
+            otp: process.env.NODE_ENV === 'development' ? "123456" : undefined
+        }, "Registration OTP sent successfully")
+    );
+});
+
+const verifyRegistrationOTP = asyncHandler(async (req, res) => {
+    const { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+        throw new ApiError(400, "Phone number and OTP are required");
+    }
+
+    // Find the temporary user with matching phone and OTP
+    const user = await User.findOne({ 
+        where: { 
+            phone: phone.trim(),
+            otpCode: otp.trim(),
+            otpExpiry: { [Op.gt]: new Date() },
+            isVerified: false // Only unverified users
+        }
+    });
+
+    if (!user) {
+        throw new ApiError(401, "Invalid or expired OTP");
+    }
+
+    // Verify the user and clear OTP
+    await user.update({
+        otpCode: null,
+        otpExpiry: null,
+        phoneVerified: true,
+        isVerified: true,
+        lastLogin: new Date()
+    });
+
+    // Generate tokens
+    const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user.id);
+
+    const verifiedUser = await User.findByPk(user.id, {
+        attributes: { exclude: ['password', 'refreshToken'] }
+    });
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+    };
+
+    return res
+        .status(201)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new ApiResponse(
+                201,
+                {
+                    user: verifiedUser,
+                    accessToken,
+                    refreshToken,
+                },
+                "Registration completed successfully"
+            )
+        );
+});
+
 export {
     registerUser,
     sendLoginOTP,
@@ -432,4 +546,6 @@ export {
     logoutUser,
     refreshAccessToken,
     getCurrentUser,
+    sendRegistrationOTP,
+    verifyRegistrationOTP,
 };

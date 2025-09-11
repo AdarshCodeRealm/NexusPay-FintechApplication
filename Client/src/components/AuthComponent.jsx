@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { registerUser, loginWithPhone, sendDummyOTP, verifyOTP, clearError, setCurrentPhone } from '../store/slices/authSlice';
+import { registerUser, loginWithPhone, sendDummyOTP, verifyOTP, sendRegistrationOTP, verifyRegistrationOTP, clearError, setCurrentPhone } from '../store/slices/authSlice';
 import { Button } from './ui/button';
+import { Eye, EyeOff, User, Lock, Phone, Mail, FileText } from 'lucide-react';
+import PrivacyPolicy from './PrivacyPolicy';
 
 const AuthComponent = () => {
   const dispatch = useDispatch();
@@ -11,6 +13,9 @@ const AuthComponent = () => {
   const [loginMethod, setLoginMethod] = useState('password'); // 'password' or 'otp'
   const [showPassword, setShowPassword] = useState(false);
   const [loginStep, setLoginStep] = useState('credentials'); // 'credentials' or 'otp'
+  const [registrationStep, setRegistrationStep] = useState('details'); // 'details' or 'otp'
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -47,11 +52,73 @@ const AuthComponent = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     dispatch(clearError());
-    await dispatch(registerUser({
-      fullName: formData.fullName,
-      phone: formData.phone,
+    
+    // Validate privacy policy agreement
+    if (!agreedToPrivacy) {
+      dispatch({ type: 'auth/sendRegistrationOTP/rejected', payload: 'You must agree to the Privacy Policy to continue' });
+      return;
+    }
+    
+    // Validate required fields
+    if (!formData.fullName.trim() || !formData.email.trim() || !formData.username.trim() || !formData.phone.trim() || !formData.password.trim()) {
+      dispatch({ type: 'auth/sendRegistrationOTP/rejected', payload: 'All fields are required' });
+      return;
+    }
+    
+    // Validate phone number format
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(formData.phone.trim())) {
+      dispatch({ type: 'auth/sendRegistrationOTP/rejected', payload: 'Please enter a valid 10-digit phone number' });
+      return;
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email.trim())) {
+      dispatch({ type: 'auth/sendRegistrationOTP/rejected', payload: 'Please enter a valid email address' });
+      return;
+    }
+    
+    // Validate password strength
+    if (formData.password.length < 6) {
+      dispatch({ type: 'auth/sendRegistrationOTP/rejected', payload: 'Password must be at least 6 characters long' });
+      return;
+    }
+    
+    // Send registration OTP instead of directly registering
+    const result = await dispatch(sendRegistrationOTP({
+      fullName: formData.fullName.trim(),
+      email: formData.email.trim().toLowerCase(),
+      username: formData.username.trim().toLowerCase(),
+      phone: formData.phone.trim(),
       password: formData.password
     }));
+    
+    // If OTP sent successfully, move to OTP verification step
+    if (result.type === 'auth/sendRegistrationOTP/fulfilled') {
+      setRegistrationStep('otp');
+      dispatch(setCurrentPhone(formData.phone.trim()));
+    }
+  };
+
+  const handleVerifyRegistrationOTP = async (e) => {
+    e.preventDefault();
+    dispatch(clearError());
+    
+    if (!formData.otp) {
+      dispatch({ type: 'auth/verifyRegistrationOTP/rejected', payload: 'OTP is required' });
+      return;
+    }
+    
+    await dispatch(verifyRegistrationOTP({
+      phone: formData.phone,
+      otp: formData.otp
+    }));
+  };
+
+  const resetRegistrationToDetails = () => {
+    setRegistrationStep('details');
+    setFormData({ ...formData, otp: '' });
   };
 
   const handlePhoneLogin = async (e) => {
@@ -125,6 +192,11 @@ const AuthComponent = () => {
 
   if (isAuthenticated) {
     return null; // Will be handled by main app routing
+  }
+
+  // Show Privacy Policy if requested
+  if (showPrivacyPolicy) {
+    return <PrivacyPolicy onBack={() => setShowPrivacyPolicy(false)} />;
   }
 
   return (
@@ -504,82 +576,215 @@ const AuthComponent = () => {
                 <p className="text-blue-200 text-sm">Join NexasPay and start managing your finances</p>
               </div>
 
-              <form onSubmit={handleRegister} className="space-y-4">
-                <div>
-                  <label className="block text-white/80 text-sm font-medium mb-2">
-                    Full Name
-                  </label>
-                  <input
-                    name="fullName"
-                    type="text"
-                    required
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
-                    placeholder="Enter your full name"
-                    value={formData.fullName}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div>
-                  <label className="block text-white/80 text-sm font-medium mb-2">
-                    Mobile Number
-                  </label>
-                  <input
-                    name="phone"
-                    type="tel"
-                    required
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
-                    placeholder="Enter your mobile number"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                <div>
-                  <label className="block text-white/80 text-sm font-medium mb-2">
-                    Password
-                  </label>
-                  <div className="relative">
+              {registrationStep === 'details' && (
+                <form onSubmit={handleRegister} className="space-y-4">
+                  <div>
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Full Name
+                    </label>
+                    <div className="relative">
+                      <input
+                        name="fullName"
+                        type="text"
+                        required
+                        className="w-full px-4 py-3 pl-12 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
+                        placeholder="Enter your full name"
+                        value={formData.fullName}
+                        onChange={handleInputChange}
+                      />
+                      <User className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50" />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Email Address
+                    </label>
+                    <div className="relative">
+                      <input
+                        name="email"
+                        type="email"
+                        required
+                        className="w-full px-4 py-3 pl-12 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
+                        placeholder="Enter your email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                      />
+                      <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50" />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Username
+                    </label>
+                    <div className="relative">
+                      <input
+                        name="username"
+                        type="text"
+                        required
+                        className="w-full px-4 py-3 pl-12 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
+                        placeholder="Choose a username"
+                        value={formData.username}
+                        onChange={handleInputChange}
+                      />
+                      <User className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50" />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Mobile Number
+                    </label>
+                    <div className="relative">
+                      <input
+                        name="phone"
+                        type="tel"
+                        required
+                        className="w-full px-4 py-3 pl-12 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
+                        placeholder="9876543210"
+                        value={formData.phone}
+                        onChange={handleInputChange}
+                        maxLength={10}
+                      />
+                      <Phone className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        required
+                        className="w-full px-4 py-3 pl-12 pr-12 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
+                        placeholder="Create a strong password"
+                        value={formData.password}
+                        onChange={handleInputChange}
+                      />
+                      <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50" />
+                      <button
+                        type="button"
+                        onClick={togglePasswordVisibility}
+                        className="absolute right-4 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white/80"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-blue-300 text-xs mt-1">Minimum 6 characters</p>
+                  </div>
+
+                  {/* Privacy Policy Checkbox */}
+                  <div className="bg-white/5 rounded-lg p-4 border border-white/20">
+                    <div className="flex items-start space-x-3">
+                      <div className="flex items-center h-5">
+                        <input
+                          id="privacy-checkbox"
+                          type="checkbox"
+                          checked={agreedToPrivacy}
+                          onChange={(e) => setAgreedToPrivacy(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-white/10 border border-white/30 rounded focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+                      <div className="text-sm">
+                        <label htmlFor="privacy-checkbox" className="text-white/80">
+                          I agree to the{' '}
+                          <button
+                            type="button"
+                            onClick={() => setShowPrivacyPolicy(true)}
+                            className="text-blue-300 hover:text-blue-200 underline font-medium inline-flex items-center"
+                          >
+                            Privacy Policy
+                            <FileText className="w-3 h-3 ml-1" />
+                          </button>
+                          {' '}and consent to the collection and use of my personal information as described.
+                        </label>
+                      </div>
+                    </div>
+                    {!agreedToPrivacy && (
+                      <p className="text-orange-300 text-xs mt-2">
+                        ⚠️ You must agree to the Privacy Policy to create an account
+                      </p>
+                    )}
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={loading || !agreedToPrivacy}
+                    className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? (
+                      <div className="flex items-center justify-center">
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>
+                        Creating Account...
+                      </div>
+                    ) : (
+                      'Create NexasPay Account'
+                    )}
+                  </Button>
+                </form>
+              )}
+
+              {registrationStep === 'otp' && (
+                <form onSubmit={handleVerifyRegistrationOTP} className="space-y-4">
+                  <div>
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Enter OTP
+                    </label>
                     <input
-                      name="password"
-                      type={showPassword ? "text" : "password"}
+                      name="otp"
+                      type="text"
                       required
-                      className="w-full px-4 py-3 pr-12 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
-                      placeholder="Create a strong password"
-                      value={formData.password}
+                      maxLength="6"
+                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm text-center text-lg tracking-widest"
+                      placeholder="123456"
+                      value={formData.otp}
                       onChange={handleInputChange}
                     />
+                  </div>
+                  <p className="text-blue-200 text-sm text-center">
+                    OTP sent to {formData.phone || currentPhone}
+                  </p>
+                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                    <p className="text-green-200 text-sm text-center">
+                      <span className="font-medium">Dummy OTP:</span> <code className="bg-green-500/20 px-2 py-1 rounded">123456</code>
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    <Button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? (
+                        <div className="flex items-center justify-center">
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>
+                          Verifying...
+                        </div>
+                      ) : (
+                        'Verify OTP'
+                      )}
+                    </Button>
                     <button
                       type="button"
-                      onClick={togglePasswordVisibility}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                      onClick={handleSendOTP}
+                      disabled={otpLoading}
+                      className="w-full py-2 text-blue-200 hover:text-white text-sm transition-colors disabled:opacity-50"
                     >
-                      {showPassword ? (
-                        <svg className="w-5 h-5 text-white/40 hover:text-white/60 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                        </svg>
-                      ) : (
-                        <svg className="w-5 h-5 text-white/40 hover:text-white/60 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      )}
+                      {otpLoading ? 'Resending...' : 'Resend OTP'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetRegistrationToDetails}
+                      className="w-full py-2 text-gray-300 hover:text-white text-sm transition-colors"
+                    >
+                      Back to Registration
                     </button>
                   </div>
-                </div>
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <div className="flex items-center justify-center">
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>
-                      Creating Account...
-                    </div>
-                  ) : (
-                    'Create Account'
-                  )}
-                </Button>
-              </form>
+                </form>
+              )}
             </div>
           )}
 

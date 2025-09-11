@@ -41,3 +41,6 @@ export const verifyRole = (...allowedRoles) => {
     next();
   });
 };
+
+// Export auth as an alias for verifyJWT to match the import in routes
+export const auth = verifyJWT;

@@ -48,6 +48,7 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showMobileTransfer, setShowMobileTransfer] = useState(false);
+  const [showWalletTopup, setShowWalletTopup] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -56,18 +57,37 @@ const Dashboard = () => {
     }
   }, [dispatch, user]);
 
+  // Listen for navigation events from child components
+  useEffect(() => {
+    const handleNavigateToWallet = () => {
+      setActiveTab('wallet');
+    };
+
+    window.addEventListener('navigateToWallet', handleNavigateToWallet);
+    
+    return () => {
+      window.removeEventListener('navigateToWallet', handleNavigateToWallet);
+    };
+  }, []);
+
   const handleLogout = () => {
     dispatch(logoutUser());
   };
 
+  // Function to handle wallet top-up
+  const handleTopUpWallet = () => {
+    setShowWalletTopup(true);
+  };
+
   const menuItems = [
+    { id: 'dashboard', label: 'Home', icon: <Home /> },
     { id: 'profile', label: 'Profile', icon: <User /> },
     { id: 'kyc', label: 'KYC', icon: <FileText /> },
     { id: 'security', label: 'Security', icon: <Shield /> },
     { id: 'wallet', label: 'Cards', icon: <CreditCard /> },
     { id: 'transfer', label: 'Transfers', icon: <ArrowLeftRight /> },
-    { id: 'recharge', label: 'Recharge', icon: <Phone /> },
-    { id: 'dashboard', label: 'Home', icon: <Home /> },
+    { id: 'recharge', label: 'Recharge', icon: <Phone /> }
+    
   ];
 
   // Helper function to get KYC status info
@@ -87,6 +107,11 @@ const Dashboard = () => {
   const kycStatus = getKYCStatusInfo(user?.kyc?.status);
 
   const renderContent = () => {
+    // Show WalletComponent for top-up if wallet top-up is active
+    if (showWalletTopup) {
+      return <WalletComponent onBack={() => setShowWalletTopup(false)} />;
+    }
+    
     // Show MobileTransferComponent if mobile transfer is active
     if (showMobileTransfer) {
       return <MobileTransferComponent onBack={() => setShowMobileTransfer(false)} />;
@@ -106,7 +131,7 @@ const Dashboard = () => {
       case 'security':
         return <SecurityComponent />;
       default:
-        return <DashboardContent setShowMobileTransfer={setShowMobileTransfer} />;
+        return <DashboardContent setShowMobileTransfer={setShowMobileTransfer} handleTopUpWallet={handleTopUpWallet} />;
     }
   };
 
@@ -385,9 +410,16 @@ const Dashboard = () => {
   );
 };
 
-const DashboardContent = ({ setShowMobileTransfer }) => {
+const DashboardContent = ({ setShowMobileTransfer, handleTopUpWallet }) => {
   const { user } = useSelector((state) => state.auth);
   const { balance, transactions, transactionLoading } = useSelector((state) => state.wallet);
+
+  // Function to handle "See all" transactions click
+  const handleSeeAllTransactions = () => {
+    // Trigger an event that the parent Dashboard component will listen for
+    const event = new CustomEvent('navigateToWallet');
+    window.dispatchEvent(event);
+  };
 
   // Function to handle transfer option clicks
   const handleTransferOption = (option) => {
@@ -449,7 +481,10 @@ const DashboardContent = ({ setShowMobileTransfer }) => {
               </h2>
             </div>
             <div className="flex space-x-2">
-              <button className="bg-white/20 backdrop-blur-sm rounded-xl px-4 py-2 border border-white/20 hover:bg-white/30 transition-all flex items-center space-x-2">
+              <button 
+                onClick={handleTopUpWallet}
+                className="bg-white/20 backdrop-blur-sm rounded-xl px-4 py-2 border border-white/20 hover:bg-white/30 transition-all flex items-center space-x-2"
+              >
                 <Plus className="w-4 h-4 text-white" />
                 <span className="text-white text-sm font-medium">Top Up Wallet</span>
               </button>
@@ -666,7 +701,7 @@ const DashboardContent = ({ setShowMobileTransfer }) => {
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-800">LAST TRANSACTIONS</h3>
-          <button className="text-purple-600 text-sm font-medium">See all</button>
+          <button onClick={handleSeeAllTransactions} className="text-purple-600 text-sm font-medium">See all</button>
         </div>
         
         {transactionLoading ? (

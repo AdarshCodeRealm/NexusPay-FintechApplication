@@ -3,6 +3,9 @@ import {
   getWalletBalance,
   addMoneyToWallet,
   transferMoney,
+  secureTransferMoney,
+  generateTransferOTP,
+  getTransferLimits,
   withdrawMoney,
   getTransactionHistory,
   mobileRecharge,
@@ -21,6 +24,9 @@ router.use(verifyJWT);
 router.route("/balance").get(getWalletBalance);
 router.route("/add-money").post(addMoneyToWallet);
 router.route("/transfer").post(transferMoney);
+router.route("/secure-transfer").post(secureTransferMoney);
+router.route("/transfer-otp").post(generateTransferOTP);
+router.route("/transfer-limits").get(getTransferLimits);
 router.route("/withdraw").post(withdrawMoney);
 router.route("/transactions").get(getTransactionHistory);
 router.route("/mobile-recharge").post(mobileRecharge);

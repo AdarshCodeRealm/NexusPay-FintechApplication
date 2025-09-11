@@ -19,8 +19,6 @@ const PaymentSuccess = () => {
     const isOpenedAsPopup = window.opener !== null && window.opener !== window;
     setIsPopup(isOpenedAsPopup);
     
-    console.log('PaymentSuccess page loaded as popup:', isOpenedAsPopup);
-    
     // Get transaction details from URL parameters
     const transactionId = searchParams.get('id');
     const status = searchParams.get('status');
@@ -44,6 +42,25 @@ const PaymentSuccess = () => {
         setPaymentDetails(successData);
         setLoading(false);
         
+        // ALWAYS refresh wallet balance on successful payment - with retry logic
+        console.log('🔄 Refreshing wallet balance after successful payment');
+        const refreshBalance = async (retryCount = 0) => {
+          try {
+            await dispatch(getWalletBalance());
+            console.log('✅ Wallet balance refreshed successfully');
+          } catch (error) {
+            console.error('❌ Failed to refresh wallet balance:', error);
+            if (retryCount < 3) {
+              console.log(`🔄 Retrying wallet balance refresh (${retryCount + 1}/3)...`);
+              setTimeout(() => refreshBalance(retryCount + 1), 2000);
+            }
+          }
+        };
+        
+        // Refresh immediately and also after a delay to ensure backend processing is complete
+        refreshBalance();
+        setTimeout(() => refreshBalance(), 5000);
+        
         // Send success message to parent window if opened as popup
         if (isOpenedAsPopup) {
           console.log('Sending payment success message to parent window');
@@ -60,9 +77,6 @@ const PaymentSuccess = () => {
             window.close();
           }, 3000);
         }
-        
-        // Still refresh wallet balance
-        dispatch(getWalletBalance());
       } else {
         // Otherwise check payment status
         checkPaymentStatusWithRetry(transactionId);
