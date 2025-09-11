@@ -42,7 +42,18 @@ app.use("/api/v1/beneficiaries", beneficiaryRouter)
 app.use("/api/v1/users", userRouter)
 app.use("/api/v1/payments", paymentRouter)
 
-// Health check route
+// Add a simple test endpoint for Vercel debugging
+app.get("/api/v1/test", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "API is working on Vercel",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    headers: req.headers
+  });
+});
+
+// Enhanced health check route with more debugging info
 app.get("/api/v1/health", async (req, res) => {
   try {
     // Test database connectivity
@@ -53,7 +64,11 @@ app.get("/api/v1/health", async (req, res) => {
       message: "Server is running",
       database: "Connected",
       timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development'
+      environment: process.env.NODE_ENV || 'development',
+      vercel: {
+        region: process.env.VERCEL_REGION || 'unknown',
+        url: process.env.VERCEL_URL || 'local'
+      }
     });
   } catch (error) {
     console.error('Health check failed:', error);
@@ -119,12 +134,88 @@ app.get("/", (req, res) => {
   })
 })
 
-// Error handling middleware
+// Enhanced error handling middleware with detailed logging
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  const timestamp = new Date().toISOString();
+  
+  // Log the full error details
+  console.error(`[${timestamp}] Error in ${req.method} ${req.originalUrl}:`, {
+    message: err.message,
+    name: err.name,
+    stack: err.stack,
+    body: req.body,
+    headers: req.headers,
+    params: req.params,
+    query: req.query
+  });
+
+  // Check if it's already an ApiError (from our controllers)
+  if (err.statusCode) {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+      error: process.env.NODE_ENV === 'development' ? {
+        name: err.name,
+        stack: err.stack
+      } : undefined,
+      timestamp
+    });
+  }
+
+  // Handle Sequelize/Database errors specifically
+  if (err.name && err.name.includes('Sequelize')) {
+    console.error('Database Error Details:', {
+      name: err.name,
+      message: err.message,
+      sql: err.sql || 'No SQL query',
+      original: err.original || 'No original error'
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: "Database error occurred",
+      error: process.env.NODE_ENV === 'development' ? {
+        name: err.name,
+        message: err.message,
+        sql: err.sql
+      } : "Database connection issue",
+      timestamp
+    });
+  }
+
+  // Handle validation errors
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      message: "Validation error",
+      error: err.message,
+      timestamp
+    });
+  }
+
+  // Handle JWT errors
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication error",
+      error: err.message,
+      timestamp
+    });
+  }
+
+  // Generic error fallback
+  console.error('Unhandled Error:', err);
   res.status(500).json({ 
     success: false, 
-    message: "Something went wrong!" 
+    message: process.env.NODE_ENV === 'development' 
+      ? `Unhandled error: ${err.message}` 
+      : "Internal server error",
+    error: process.env.NODE_ENV === 'development' ? {
+      name: err.name,
+      message: err.message,
+      stack: err.stack
+    } : undefined,
+    timestamp
   });
 });
 

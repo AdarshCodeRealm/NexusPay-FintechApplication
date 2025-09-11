@@ -9,17 +9,34 @@ dotenv.config({ path: './.env' });
 // For Vercel serverless functions
 export default async function handler(req, res) {
   try {
+    // Set CORS headers for Vercel
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
+
     // Initialize database connection for each request
     await connectDB();
     
-    // Handle the request with Express app
-    return app(req, res);
+    // Use the Express app to handle the request
+    await new Promise((resolve, reject) => {
+      app(req, res, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
   } catch (error) {
-    console.error('Handler error:', error);
+    console.error('Vercel Handler error:', error);
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Server error'
     });
   }
 }

@@ -44,13 +44,12 @@ const sequelize = new Sequelize(
     pool: {
       max: process.env.NODE_ENV === 'production' ? 2 : 5, // Reduced for serverless
       min: 0,
-      acquire: 30000,
+      acquire: 30000, // acquireTimeout should be in pool config, not dialectOptions
       idle: 10000,
     },
     dialectOptions: {
-      connectTimeout: 30000,
-      acquireTimeout: 30000,
-      timeout: 30000,
+      connectTimeout: 30000, // This is valid for MySQL2
+      // Removed acquireTimeout and timeout as they're not valid MySQL2 connection options
       // SSL configuration for production databases
       ssl: process.env.NODE_ENV === 'production' ? {
         require: false,
@@ -65,7 +64,7 @@ const sequelize = new Sequelize(
     // Add retry configuration for production
     retry: {
       max: 3,
-      timeout: 30000,
+      timeout: 30000, // timeout belongs in retry config, not dialectOptions
       match: [
         /ECONNRESET/,
         /ENOTFOUND/,

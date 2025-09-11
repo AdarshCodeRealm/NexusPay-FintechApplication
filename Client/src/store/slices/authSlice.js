@@ -115,11 +115,29 @@ export const logoutUser = createAsyncThunk(
   'auth/logout',
   async (_, { rejectWithValue }) => {
     try {
-      await api.post('/auth/logout');
+      // Get the token from localStorage
+      const token = localStorage.getItem('accessToken');
+      
+      // Set authorization header if token exists
+      if (token) {
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      }
+      
+      // Explicitly set Content-Type header and send empty object to ensure proper request formatting
+      await api.post('/auth/logout', {}, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       localStorage.removeItem('accessToken');
+      
+      // Clear the authorization header after logout
+      delete api.defaults.headers.common['Authorization'];
+      
       return {};
     } catch (error) {
       localStorage.removeItem('accessToken');
+      delete api.defaults.headers.common['Authorization'];
       return rejectWithValue(error.response?.data?.message || 'Logout failed');
     }
   }

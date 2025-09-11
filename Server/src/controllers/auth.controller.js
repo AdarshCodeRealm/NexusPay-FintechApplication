@@ -253,59 +253,123 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 const loginWithPhone = asyncHandler(async (req, res) => {
+    const requestId = req.requestId || 'unknown';
+    
     try {
-        console.log('🔍 loginWithPhone - Request received:', {
-            body: req.body,
-            headers: req.headers['content-type']
-        });
+        console.log(`[${requestId}] 🔍 loginWithPhone - Starting authentication process`);
 
         const { phone, password } = req.body;
 
-        if (!phone || !password) {
-            console.log('❌ Missing phone or password:', { phone: !!phone, password: !!password });
-            throw new ApiError(400, "Phone number and password are required");
+        // Enhanced input validation
+        if (!phone || phone.trim() === '') {
+            console.log(`[${requestId}] ❌ Phone number missing or empty`);
+            throw new ApiError(400, "Phone number is required");
+        }
+        
+        if (!password || password.trim() === '') {
+            console.log(`[${requestId}] ❌ Password missing or empty`);
+            throw new ApiError(400, "Password is required");
         }
 
-        // Validate database connection before proceeding
-        console.log('🔍 Testing database connection...');
-        await sequelize.authenticate();
-        console.log('✅ Database connection verified');
+        // Validate phone number format
+        const phoneRegex = /^\d{10}$/;
+        if (!phoneRegex.test(phone.trim())) {
+            console.log(`[${requestId}] ❌ Invalid phone format: ${phone}`);
+            throw new ApiError(400, "Please provide a valid 10-digit phone number");
+        }
 
-        console.log('🔍 Searching for user with phone:', phone);
-        const user = await User.findOne({
-            where: { phone: phone.trim() }
-        });
+        // Test database connection before proceeding
+        console.log(`[${requestId}] 🔍 Testing database connection...`);
+        try {
+            await sequelize.authenticate();
+            console.log(`[${requestId}] ✅ Database connection verified`);
+        } catch (dbError) {
+            console.error(`[${requestId}] ❌ Database connection failed:`, dbError);
+            throw new ApiError(503, "Database service unavailable. Please try again later.");
+        }
+
+        // Search for user
+        console.log(`[${requestId}] 🔍 Searching for user with phone: ${phone.substring(0, 3)}***${phone.substring(7)}`);
+        let user;
+        try {
+            user = await User.findOne({
+                where: { phone: phone.trim() }
+            });
+        } catch (queryError) {
+            console.error(`[${requestId}] ❌ Database query error:`, {
+                name: queryError.name,
+                message: queryError.message,
+                sql: queryError.sql || 'No SQL available'
+            });
+            throw new ApiError(500, "Database query failed. Please try again.");
+        }
 
         if (!user) {
-            console.log('❌ No user found with phone:', phone);
+            console.log(`[${requestId}] ❌ No user found with phone: ${phone.substring(0, 3)}***${phone.substring(7)}`);
             throw new ApiError(404, "No user found with this phone number");
         }
 
-        console.log('✅ User found, verifying password...');
-        const isPasswordValid = await user.isPasswordCorrect(password);
+        console.log(`[${requestId}] ✅ User found: ${user.fullName} (ID: ${user.id})`);
+
+        // Verify password
+        console.log(`[${requestId}] 🔍 Verifying password...`);
+        let isPasswordValid;
+        try {
+            isPasswordValid = await user.isPasswordCorrect(password);
+        } catch (passwordError) {
+            console.error(`[${requestId}] ❌ Password verification error:`, passwordError);
+            throw new ApiError(500, "Password verification failed. Please try again.");
+        }
 
         if (!isPasswordValid) {
-            console.log('❌ Invalid password for user:', phone);
+            console.log(`[${requestId}] ❌ Invalid password for user: ${user.id}`);
             throw new ApiError(401, "Invalid password");
         }
 
-        console.log('✅ Password verified, updating last login...');
+        console.log(`[${requestId}] ✅ Password verified successfully`);
+
         // Update last login
-        await user.update({ lastLogin: new Date() });
+        console.log(`[${requestId}] 🔍 Updating last login...`);
+        try {
+            await user.update({ lastLogin: new Date() });
+            console.log(`[${requestId}] ✅ Last login updated`);
+        } catch (updateError) {
+            console.warn(`[${requestId}] ⚠️ Failed to update last login (non-critical):`, updateError.message);
+            // Don't fail the login for this non-critical operation
+        }
 
-        console.log('✅ Generating tokens...');
-        const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user.id);
+        // Generate tokens
+        console.log(`[${requestId}] 🔍 Generating authentication tokens...`);
+        let accessToken, refreshToken;
+        try {
+            const tokens = await generateAccessAndRefreshTokens(user.id);
+            accessToken = tokens.accessToken;
+            refreshToken = tokens.refreshToken;
+            console.log(`[${requestId}] ✅ Tokens generated successfully`);
+        } catch (tokenError) {
+            console.error(`[${requestId}] ❌ Token generation failed:`, tokenError);
+            throw new ApiError(500, "Failed to generate authentication tokens. Please try again.");
+        }
 
-        const loggedInUser = await User.findByPk(user.id, {
-            attributes: { exclude: ['password', 'refreshToken'] }
-        });
+        // Get user data for response
+        console.log(`[${requestId}] 🔍 Fetching user data for response...`);
+        let loggedInUser;
+        try {
+            loggedInUser = await User.findByPk(user.id, {
+                attributes: { exclude: ['password', 'refreshToken'] }
+            });
+        } catch (fetchError) {
+            console.error(`[${requestId}] ❌ Failed to fetch user data:`, fetchError);
+            throw new ApiError(500, "Failed to fetch user information. Please try again.");
+        }
 
         const options = {
             httpOnly: true,
-            secure: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict'
         };
 
-        console.log('✅ Login successful for phone:', phone);
+        console.log(`[${requestId}] ✅ Login successful for user: ${user.fullName} (${user.id})`);
 
         return res
             .status(200)
@@ -322,26 +386,36 @@ const loginWithPhone = asyncHandler(async (req, res) => {
                     "User logged in successfully"
                 )
             );
+
     } catch (error) {
-        console.error('💥 loginWithPhone error:', {
+        console.error(`[${requestId}] 💥 loginWithPhone error:`, {
             message: error.message,
-            stack: error.stack,
             name: error.name,
-            sql: error.sql || 'No SQL query'
+            statusCode: error.statusCode,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : 'Stack trace hidden in production'
         });
         
-        // Check if it's a database connection error
-        if (error.name === 'ConnectionError' || error.name === 'SequelizeConnectionError') {
-            throw new ApiError(503, "Database connection failed. Please try again later.");
-        }
-        
-        // Re-throw the original error if it's already an ApiError
-        if (error instanceof ApiError) {
+        // If it's already an ApiError, just throw it (it will be handled by asyncHandler)
+        if (error.statusCode) {
             throw error;
         }
         
-        // For any other database errors
-        throw new ApiError(500, "Internal server error during login process");
+        // Handle specific database error types
+        if (error.name === 'SequelizeConnectionError' || error.name === 'ConnectionError') {
+            throw new ApiError(503, "Database connection failed. Please try again later.");
+        }
+        
+        if (error.name === 'SequelizeTimeoutError') {
+            throw new ApiError(504, "Database request timeout. Please try again.");
+        }
+        
+        if (error.name === 'SequelizeAccessDeniedError') {
+            throw new ApiError(503, "Database access denied. Please contact support.");
+        }
+        
+        // For any other unexpected errors
+        console.error(`[${requestId}] 🚨 Unexpected error in loginWithPhone:`, error);
+        throw new ApiError(500, "An unexpected error occurred during login. Please try again.");
     }
 });
 
