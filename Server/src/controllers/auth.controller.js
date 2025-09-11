@@ -253,7 +253,7 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 const loginWithPhone = asyncHandler(async (req, res) => {
-    const requestId = req.requestId || 'unknown';
+    const requestId = req.requestId || `req-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     
     try {
         console.log(`[${requestId}] 🔍 loginWithPhone - Starting authentication process`);
@@ -366,7 +366,8 @@ const loginWithPhone = asyncHandler(async (req, res) => {
         const options = {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict'
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+            domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined
         };
 
         console.log(`[${requestId}] ✅ Login successful for user: ${user.fullName} (${user.id})`);

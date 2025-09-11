@@ -8,6 +8,29 @@ dotenv.config({ path: ".env" })
 
 const app = express()
 
+// Add request ID middleware early in the stack
+app.use((req, res, next) => {
+  req.requestId = Math.random().toString(36).substring(7);
+  req.timestamp = new Date().toISOString();
+  next();
+});
+
+// Enhanced logging middleware for Vercel debugging
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'production') {
+    console.log(`[${req.requestId}] ${req.method} ${req.originalUrl}`, {
+      headers: {
+        'content-type': req.headers['content-type'],
+        'user-agent': req.headers['user-agent']?.substring(0, 50),
+        'origin': req.headers.origin
+      },
+      body: req.body ? 'Body present' : 'No body',
+      timestamp: req.timestamp
+    });
+  }
+  next();
+});
+
 // Middleware setup
 app.use(
   Cors({
@@ -15,11 +38,14 @@ app.use(
       "http://localhost:5173", // Vite dev server
       "http://localhost:3000", // Alternative dev port
       "https://nexus-pay-fintech-application-8gni.vercel.app", // Production frontend
+      "https://nexaspay-fintech.vercel.app", // Alternative production URL
       process.env.CORS_ORIGIN
     ].filter(Boolean), // Remove any undefined values
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
   })
 )
 
