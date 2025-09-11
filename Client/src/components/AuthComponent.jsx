@@ -1,9 +1,44 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { registerUser, loginWithPhone, sendDummyOTP, verifyOTP, sendRegistrationOTP, verifyRegistrationOTP, clearError, setCurrentPhone } from '../store/slices/authSlice';
 import { Button } from './ui/button';
-import { Eye, EyeOff, User, Lock, Phone, Mail, FileText } from 'lucide-react';
+import { Eye, EyeOff, User, Lock, Phone, Mail, FileText, Users, Database, Shield } from 'lucide-react';
 import PrivacyPolicy from './PrivacyPolicy';
+
+// Custom hook to fetch platform statistics
+const usePlatformStats = () => {
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    verifiedUsers: 0,
+    platform: "NexasPay Digital Wallet",
+    status: "loading"
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+        const response = await fetch(`${apiBaseUrl}/users/platform-stats`);
+        const data = await response.json();
+        
+        if (data.success) {
+          setStats(data.data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch platform stats:', error);
+        setStats(prev => ({ ...prev, status: "offline" }));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
+  return { stats, loading };
+};
 
 const AuthComponent = () => {
   const dispatch = useDispatch();
@@ -24,6 +59,9 @@ const AuthComponent = () => {
     phone: '',
     otp: ''
   });
+
+  // Use the platform stats hook
+  const { stats, loading: statsLoading } = usePlatformStats();
 
   // Quick login test users for development
   const testUsers = [
@@ -211,6 +249,47 @@ const AuthComponent = () => {
           </div>
           <h1 className="text-4xl font-bold text-white mb-2">NexasPay</h1>
           <p className="text-blue-200 text-sm">Secure Digital Wallet & Payments</p>
+          
+          {/* Database Connection Status */}
+          <div className="mt-4 bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+            <div className="flex items-center justify-center space-x-2 text-sm">
+              <Database className="w-4 h-4" />
+              <span className="text-white/80">Database Status:</span>
+              {statsLoading ? (
+                <span className="text-yellow-300">Checking...</span>
+              ) : stats.status === 'operational' ? (
+                <span className="text-green-300">Connected ✓</span>
+              ) : (
+                <span className="text-red-300">Disconnected ✗</span>
+              )}
+            </div>
+            
+            {!statsLoading && stats.status === 'operational' && (
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                <div className="text-center">
+                  <div className="flex items-center justify-center space-x-1">
+                    <Users className="w-3 h-3 text-blue-300" />
+                    <span className="text-white font-medium">{stats.totalUsers}</span>
+                  </div>
+                  <span className="text-blue-200">Total Users</span>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center space-x-1">
+                    <Users className="w-3 h-3 text-green-300" />
+                    <span className="text-white font-medium">{stats.activeUsers}</span>
+                  </div>
+                  <span className="text-green-200">Active</span>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center space-x-1">
+                    <Shield className="w-3 h-3 text-purple-300" />
+                    <span className="text-white font-medium">{stats.verifiedUsers}</span>
+                  </div>
+                  <span className="text-purple-200">Verified</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Error Display */}
