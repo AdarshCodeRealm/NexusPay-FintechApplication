@@ -40,17 +40,18 @@ const sequelize = new Sequelize(
     port: parseInt(dbConfig.port),
     dialect: 'mysql',
     dialectModule: mysql2, // Use mysql2 directly instead of mysql2/promise
-    logging: false, // Disable SQL query logging for cleaner output
+    logging: process.env.NODE_ENV === 'development' ? console.log : false, // Enable logging only in development
     pool: {
-      max: 2, // Reduced for serverless
+      max: process.env.NODE_ENV === 'production' ? 2 : 5, // Reduced for serverless
       min: 0,
       acquire: 30000,
       idle: 10000,
     },
     dialectOptions: {
       connectTimeout: 30000,
-      // Removed acquireTimeout and timeout from dialectOptions as they're invalid for MySQL2
-      // SSL configuration for RDS if needed
+      acquireTimeout: 30000,
+      timeout: 30000,
+      // SSL configuration for production databases
       ssl: process.env.NODE_ENV === 'production' ? {
         require: false,
         rejectUnauthorized: false
@@ -61,6 +62,19 @@ const sequelize = new Sequelize(
       underscored: false,
       freezeTableName: true,
     },
+    // Add retry configuration for production
+    retry: {
+      max: 3,
+      timeout: 30000,
+      match: [
+        /ECONNRESET/,
+        /ENOTFOUND/,
+        /ECONNREFUSED/,
+        /ETIMEDOUT/,
+        /EHOSTUNREACH/,
+        /EAI_AGAIN/
+      ]
+    }
   }
 );
 

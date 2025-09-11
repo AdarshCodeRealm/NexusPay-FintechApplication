@@ -4,6 +4,7 @@ import { User } from "../models/index.js";
 import { ApiResponse } from "../utils/utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import { Op } from "sequelize";
+import { sequelize } from "../db/index.js";
 
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
@@ -252,55 +253,96 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 const loginWithPhone = asyncHandler(async (req, res) => {
-    const { phone, password } = req.body;
+    try {
+        console.log('🔍 loginWithPhone - Request received:', {
+            body: req.body,
+            headers: req.headers['content-type']
+        });
 
-    if (!phone || !password) {
-        throw new ApiError(400, "Phone number and password are required");
+        const { phone, password } = req.body;
+
+        if (!phone || !password) {
+            console.log('❌ Missing phone or password:', { phone: !!phone, password: !!password });
+            throw new ApiError(400, "Phone number and password are required");
+        }
+
+        // Validate database connection before proceeding
+        console.log('🔍 Testing database connection...');
+        await sequelize.authenticate();
+        console.log('✅ Database connection verified');
+
+        console.log('🔍 Searching for user with phone:', phone);
+        const user = await User.findOne({
+            where: { phone: phone.trim() }
+        });
+
+        if (!user) {
+            console.log('❌ No user found with phone:', phone);
+            throw new ApiError(404, "No user found with this phone number");
+        }
+
+        console.log('✅ User found, verifying password...');
+        const isPasswordValid = await user.isPasswordCorrect(password);
+
+        if (!isPasswordValid) {
+            console.log('❌ Invalid password for user:', phone);
+            throw new ApiError(401, "Invalid password");
+        }
+
+        console.log('✅ Password verified, updating last login...');
+        // Update last login
+        await user.update({ lastLogin: new Date() });
+
+        console.log('✅ Generating tokens...');
+        const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user.id);
+
+        const loggedInUser = await User.findByPk(user.id, {
+            attributes: { exclude: ['password', 'refreshToken'] }
+        });
+
+        const options = {
+            httpOnly: true,
+            secure: true,
+        };
+
+        console.log('✅ Login successful for phone:', phone);
+
+        return res
+            .status(200)
+            .cookie("accessToken", accessToken, options)
+            .cookie("refreshToken", refreshToken, options)
+            .json(
+                new ApiResponse(
+                    200,
+                    {
+                        user: loggedInUser,
+                        accessToken,
+                        refreshToken,
+                    },
+                    "User logged in successfully"
+                )
+            );
+    } catch (error) {
+        console.error('💥 loginWithPhone error:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name,
+            sql: error.sql || 'No SQL query'
+        });
+        
+        // Check if it's a database connection error
+        if (error.name === 'ConnectionError' || error.name === 'SequelizeConnectionError') {
+            throw new ApiError(503, "Database connection failed. Please try again later.");
+        }
+        
+        // Re-throw the original error if it's already an ApiError
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        
+        // For any other database errors
+        throw new ApiError(500, "Internal server error during login process");
     }
-
-    const user = await User.findOne({
-        where: { phone }
-    });
-
-    if (!user) {
-        throw new ApiError(404, "No user found with this phone number");
-    }
-
-    const isPasswordValid = await user.isPasswordCorrect(password);
-
-    if (!isPasswordValid) {
-        throw new ApiError(401, "Invalid password");
-    }
-
-    // Update last login
-    await user.update({ lastLogin: new Date() });
-
-    const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user.id);
-
-    const loggedInUser = await User.findByPk(user.id, {
-        attributes: { exclude: ['password', 'refreshToken'] }
-    });
-
-    const options = {
-        httpOnly: true,
-        secure: true,
-    };
-
-    return res
-        .status(200)
-        .cookie("accessToken", accessToken, options)
-        .cookie("refreshToken", refreshToken, options)
-        .json(
-            new ApiResponse(
-                200,
-                {
-                    user: loggedInUser,
-                    accessToken,
-                    refreshToken,
-                },
-                "User logged in successfully"
-            )
-        );
 });
 
 const sendDummyOTP = asyncHandler(async (req, res) => {
