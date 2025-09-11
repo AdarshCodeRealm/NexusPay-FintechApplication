@@ -493,6 +493,36 @@ const searchUserByPhone = asyncHandler(async (req, res) => {
     );
 });
 
+// Public endpoint to get basic platform statistics
+const getPlatformStats = asyncHandler(async (req, res) => {
+    try {
+        const totalUsers = await User.count();
+        const activeUsers = await User.count({ where: { isActive: true } });
+        const verifiedUsers = await User.count({ where: { phoneVerified: true } });
+        
+        return res.status(200).json(
+            new ApiResponse(200, {
+                totalUsers,
+                activeUsers,
+                verifiedUsers,
+                platform: "NexasPay Digital Wallet",
+                status: "operational"
+            }, "Platform statistics fetched successfully")
+        );
+    } catch (error) {
+        console.error("Error fetching platform stats:", error);
+        return res.status(200).json(
+            new ApiResponse(200, {
+                totalUsers: 0,
+                activeUsers: 0,
+                verifiedUsers: 0,
+                platform: "NexasPay Digital Wallet",
+                status: "maintenance"
+            }, "Platform statistics unavailable")
+        );
+    }
+});
+
 export {
     updateProfile,
     submitKYC,
@@ -505,5 +535,6 @@ export {
     getUsersList,
     getUserStats,
     toggleUserStatus,
-    searchUserByPhone
+    searchUserByPhone,
+    getPlatformStats
 };

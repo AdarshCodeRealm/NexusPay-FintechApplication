@@ -38,6 +38,7 @@ app.use(
       "http://localhost:5173", // Vite dev server
       "http://localhost:3000", // Alternative dev port
       "https://nexus-pay-fintech-application-8gni.vercel.app", // Production frontend
+      "https://nexus-pay-fintech-application-8gni-ouod51nb5.vercel.app", // Updated production frontend
       "https://nexaspay-fintech.vercel.app", // Alternative production URL
       process.env.CORS_ORIGIN
     ].filter(Boolean), // Remove any undefined values

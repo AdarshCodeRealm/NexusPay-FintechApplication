@@ -9,6 +9,7 @@ import {
   updateUserStatus,
   getAllUsers,
   searchUserByPhone,
+  getPlatformStats,
 } from "../controllers/user.controller.js";
 import { verifyJWT, verifyRole } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
@@ -19,7 +20,10 @@ const router = Router();
 // Apply database initialization middleware first
 router.use(initializeDatabase);
 
-// All routes are protected
+// PUBLIC ROUTES (no authentication required)
+router.route("/platform-stats").get(getPlatformStats);
+
+// All remaining routes are protected
 router.use(verifyJWT);
 
 // Profile management
