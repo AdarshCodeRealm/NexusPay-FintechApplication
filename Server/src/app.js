@@ -61,6 +61,7 @@ import walletRouter from "./routes/wallet.route.js"
 import beneficiaryRouter from "./routes/beneficiary.route.js"
 import userRouter from "./routes/user.route.js"
 import paymentRouter from "./routes/payment.route.js"
+import testRouter from "./routes/test.route.js"
 
 // Route declarations
 app.use("/api/v1/auth", authRouter)
@@ -68,6 +69,7 @@ app.use("/api/v1/wallet", walletRouter)
 app.use("/api/v1/beneficiaries", beneficiaryRouter)
 app.use("/api/v1/users", userRouter)
 app.use("/api/v1/payments", paymentRouter)
+app.use("/api/v1/test", testRouter)
 
 // Add a simple test endpoint for Vercel debugging
 app.get("/api/v1/test", (req, res) => {
