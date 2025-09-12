@@ -71,96 +71,18 @@ app.use("/api/v1/users", userRouter)
 app.use("/api/v1/payments", paymentRouter)
 app.use("/api/v1/test", testRouter)
 
-// Add a simple test endpoint for Vercel debugging
-app.get("/api/v1/test", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "API is working on Vercel",
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-    headers: req.headers
-  });
-});
-
-// Enhanced health check route with more debugging info
-app.get("/api/v1/health", async (req, res) => {
-  try {
-    // Test database connectivity
-    await sequelize.authenticate();
-    
-    res.status(200).json({ 
-      status: "OK", 
-      message: "Server is running",
-      database: "Connected",
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development',
-      vercel: {
-        region: process.env.VERCEL_REGION || 'unknown',
-        url: process.env.VERCEL_URL || 'local'
-      }
-    });
-  } catch (error) {
-    console.error('Health check failed:', error);
-    res.status(503).json({ 
-      status: "ERROR", 
-      message: "Server is running but database is unavailable",
-      database: "Disconnected",
-      error: error.message,
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development'
-    });
-  }
-});
-
-// Database health check endpoint
-app.get("/api/v1/health/database", async (req, res) => {
-  try {
-    const startTime = Date.now();
-    
-    // Test database connection
-    await sequelize.authenticate();
-    
-    // Test a simple query
-    const [results] = await sequelize.query('SELECT 1 as test');
-    
-    const responseTime = Date.now() - startTime;
-    
-    res.status(200).json({
-      status: "OK",
-      message: "Database connection successful",
-      responseTime: `${responseTime}ms`,
-      timestamp: new Date().toISOString(),
-      queryResult: results[0]
-    });
-  } catch (error) {
-    const responseTime = Date.now() - startTime;
-    console.error('Database health check failed:', error);
-    
-    res.status(503).json({
-      status: "ERROR",
-      message: "Database connection failed",
-      error: {
-        name: error.name,
-        message: error.message
-      },
-      responseTime: `${responseTime}ms`,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Favicon route to prevent 404 errors
-app.get("/favicon.ico", (req, res) => {
-  res.status(204).end()
-})
-
 // Root route for Vercel
 app.get("/", (req, res) => {
   res.status(200).json({ 
     success: true, 
     message: "Fintech API Server is running",
-    version: "1.0.0"
+    version: "1.0.1"
   })
+})
+
+// Favicon route to prevent 404 errors
+app.get("/favicon.ico", (req, res) => {
+  res.status(204).end()
 })
 
 // Enhanced error handling middleware with detailed logging
