@@ -5,21 +5,13 @@ import dotenv from "dotenv";
 // Load environment variables with absolute path
 dotenv.config({ path: "./.env" });
 
-// Debug environment variables
-console.log('🔍 Environment variables loaded:');
-console.log('DB_HOST:', process.env.DB_HOST || 'NOT_SET');
-console.log('DB_PORT:', process.env.DB_PORT || 'NOT_SET');
-console.log('DB_NAME:', process.env.DB_NAME || 'NOT_SET');
-console.log('DB_USER:', process.env.DB_USER || 'NOT_SET');
-console.log('DB_PASSWORD:', process.env.DB_PASSWORD ? '***HIDDEN***' : 'NOT_SET');
-
-// Database configuration
+// Hardcoded database configuration
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'admin',
-  database: process.env.DB_NAME || 'fintech_db'
+  host: 'database-1.csv82cm2o697.us-east-1.rds.amazonaws.com',
+  port: 3306,
+  user: 'admin',
+  password: 'Admin$123', // Replace with your actual password
+  database: 'fintech_db'
 };
 
 console.log('🔧 Database config:', {
@@ -27,7 +19,7 @@ console.log('🔧 Database config:', {
   port: dbConfig.port,
   user: dbConfig.user,
   database: dbConfig.database,
-  password: dbConfig.password ? '***HIDDEN***' : 'NOT_SET'
+  password: '***HIDDEN***'
 });
 
 // Sequelize instance with serverless optimizations
