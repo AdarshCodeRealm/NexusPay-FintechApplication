@@ -1,22 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://server-one-sooty.vercel.app/api/v1';
-
-// Create axios instance with credentials
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-});
-
-// Set auth header interceptor
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+import { api } from '../../lib/api.js';
 
 // Async thunks for wallet operations
 export const getWalletBalance = createAsyncThunk(

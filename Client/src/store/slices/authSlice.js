@@ -1,14 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
 import { REHYDRATE } from 'redux-persist';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://server-one-sooty.vercel.app/api/v1';
-
-// Create axios instance with credentials
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-});
+import { api } from '../../lib/api.js';
 
 // Async thunks for auth operations
 export const registerUser = createAsyncThunk(

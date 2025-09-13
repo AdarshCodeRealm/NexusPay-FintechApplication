@@ -7,6 +7,7 @@ import Dashboard from './components/Dashboard';
 import PaymentSuccess from './components/PaymentSuccess';
 import PaymentFailure from './components/PaymentFailure';
 import LoadingScreen from './components/LoadingScreen';
+import DatabaseStatus from './components/DatabaseStatus';
 import './App.css';
 
 function App() {
@@ -28,42 +29,51 @@ function App() {
   }
 
   return (
-    <Router>
-      <Routes>
-        {/* Public routes for payment callbacks */}
-        <Route path="/payment-success" element={<PaymentSuccess />} />
-        <Route path="/payment-failure" element={<PaymentFailure />} />
-        <Route path="/payment-callback" element={<PaymentSuccess />} />
-        
-        {/* Protected routes */}
-        <Route 
-          path="/dashboard" 
-          element={isAuthenticated ? <Dashboard /> : <Navigate to="/auth" replace />} 
-        />
-        
-        {/* Auth route */}
-        <Route 
-          path="/auth" 
-          element={!isAuthenticated ? <AuthComponent /> : <Navigate to="/dashboard" replace />} 
-        />
-        
-        {/* Default route */}
-        <Route 
-          path="/" 
-          element={
-            isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/auth" replace />
-          } 
-        />
-        
-        {/* Catch all route */}
-        <Route 
-          path="*" 
-          element={
-            isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/auth" replace />
-          } 
-        />
-      </Routes>
-    </Router>
+    <div className="min-h-screen bg-gray-50">
+      {/* Database Status Bar */}
+      <div className="bg-white border-b border-gray-200 px-4 py-2">
+        <div className="max-w-7xl mx-auto">
+          <DatabaseStatus />
+        </div>
+      </div>
+      
+      <Router>
+        <Routes>
+          {/* Public routes for payment callbacks */}
+          <Route path="/payment-success" element={<PaymentSuccess />} />
+          <Route path="/payment-failure" element={<PaymentFailure />} />
+          <Route path="/payment-callback" element={<PaymentSuccess />} />
+          
+          {/* Protected routes */}
+          <Route 
+            path="/dashboard" 
+            element={isAuthenticated ? <Dashboard /> : <Navigate to="/auth" replace />} 
+          />
+          
+          {/* Auth route */}
+          <Route 
+            path="/auth" 
+            element={!isAuthenticated ? <AuthComponent /> : <Navigate to="/dashboard" replace />} 
+          />
+          
+          {/* Default route */}
+          <Route 
+            path="/" 
+            element={
+              isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/auth" replace />
+            } 
+          />
+          
+          {/* Catch all route */}
+          <Route 
+            path="*" 
+            element={
+              isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/auth" replace />
+            } 
+          />
+        </Routes>
+      </Router>
+    </div>
   );
 }
 

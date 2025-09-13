@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { registerUser, loginWithPhone, sendDummyOTP, verifyOTP, sendRegistrationOTP, verifyRegistrationOTP, clearError, setCurrentPhone } from '../store/slices/authSlice';
 import { Button } from './ui/button';
-import { Eye, EyeOff, User, Lock, Phone, Mail, FileText, Users, Database, Shield } from 'lucide-react';
+import { Eye, EyeOff, User, Lock, Phone, Mail, FileText, Users, Database, Shield, Server, Link } from 'lucide-react';
 import PrivacyPolicy from './PrivacyPolicy';
+import { API_BASE_URL } from '../lib/api.js';
 
 // Custom hook to fetch platform statistics
 const usePlatformStats = () => {
@@ -19,8 +20,7 @@ const usePlatformStats = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://server-one-sooty.vercel.app/api/v1';
-        const response = await fetch(`${apiBaseUrl}/users/platform-stats`);
+        const response = await fetch(`${API_BASE_URL}/users/platform-stats`);
         const data = await response.json();
         
         if (data.success) {
@@ -51,6 +51,7 @@ const AuthComponent = () => {
   const [registrationStep, setRegistrationStep] = useState('details'); // 'details' or 'otp'
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
+  const [showServerInfo, setShowServerInfo] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -249,6 +250,41 @@ const AuthComponent = () => {
           </div>
           <h1 className="text-4xl font-bold text-white mb-2">NexasPay</h1>
           <p className="text-blue-200 text-sm">Secure Digital Wallet & Payments</p>
+          
+          {/* API Server URL Display */}
+          <div className="mt-4 bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+            <div className="flex items-center justify-center space-x-2 text-sm">
+              <Server className="w-4 h-4" />
+              <span className="text-white/80">Server URL:</span>
+              <button
+                onClick={() => setShowServerInfo(!showServerInfo)}
+                className="text-blue-300 hover:text-blue-200 transition-colors"
+              >
+                {showServerInfo ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            
+            {showServerInfo && (
+              <div className="mt-2 space-y-2">
+                <div className="bg-black/20 rounded-lg p-3 text-xs">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Link className="w-3 h-3 text-green-300" />
+                    <span className="text-green-300 font-medium">Current API Endpoint:</span>
+                  </div>
+                  <code className="text-white break-all">{API_BASE_URL}</code>
+                </div>
+                <div className="text-xs text-white/60">
+                  Status: {statsLoading ? (
+                    <span className="text-yellow-300">Checking...</span>
+                  ) : stats.status === 'operational' ? (
+                    <span className="text-green-300">Connected ✓</span>
+                  ) : (
+                    <span className="text-red-300">Disconnected ✗</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           
           {/* Database Connection Status */}
           <div className="mt-4 bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
