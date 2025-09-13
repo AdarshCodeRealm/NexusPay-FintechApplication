@@ -262,24 +262,42 @@ User.prototype.isPasswordCorrect = async function(password) {
 };
 
 User.prototype.generateAccessToken = function() {
-  return jwt.sign(
-    {
-      _id: this.id,
-      email: this.email,
-      username: this.username,
-      fullName: this.fullName,
-    },
-    process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY }
-  );
+  try {
+    if (!process.env.ACCESS_TOKEN_SECRET) {
+      throw new Error('ACCESS_TOKEN_SECRET environment variable is not set');
+    }
+    
+    return jwt.sign(
+      {
+        _id: this.id,
+        email: this.email,
+        username: this.username,
+        fullName: this.fullName,
+      },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || '1d' }
+    );
+  } catch (error) {
+    console.error('Access token generation failed:', error.message);
+    throw error;
+  }
 };
 
 User.prototype.generateRefreshToken = function() {
-  return jwt.sign(
-    { _id: this.id },
-    process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY }
-  );
+  try {
+    if (!process.env.REFRESH_TOKEN_SECRET) {
+      throw new Error('REFRESH_TOKEN_SECRET environment variable is not set');
+    }
+    
+    return jwt.sign(
+      { _id: this.id },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '10d' }
+    );
+  } catch (error) {
+    console.error('Refresh token generation failed:', error.message);
+    throw error;
+  }
 };
 
 export { User };

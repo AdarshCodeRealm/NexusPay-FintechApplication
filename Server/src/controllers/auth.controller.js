@@ -8,7 +8,22 @@ import { sequelize } from "../db/index.js";
 
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
+        // Validate required environment variables
+        if (!process.env.ACCESS_TOKEN_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
+            console.error('❌ Missing JWT environment variables:', {
+                ACCESS_TOKEN_SECRET: !!process.env.ACCESS_TOKEN_SECRET,
+                REFRESH_TOKEN_SECRET: !!process.env.REFRESH_TOKEN_SECRET,
+                ACCESS_TOKEN_EXPIRY: process.env.ACCESS_TOKEN_EXPIRY || 'undefined',
+                REFRESH_TOKEN_EXPIRY: process.env.REFRESH_TOKEN_EXPIRY || 'undefined'
+            });
+            throw new ApiError(500, "JWT configuration is missing. Please contact administrator.");
+        }
+
         const user = await User.findByPk(userId);
+        if (!user) {
+            throw new ApiError(404, "User not found for token generation");
+        }
+
         const accessToken = user.generateAccessToken();
         const refreshToken = user.generateRefreshToken();
 
@@ -17,6 +32,16 @@ const generateAccessAndRefreshTokens = async (userId) => {
 
         return { accessToken, refreshToken };
     } catch (error) {
+        console.error('Token generation error:', {
+            userId,
+            error: error.message,
+            stack: error.stack
+        });
+        
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        
         throw new ApiError(500, "Something went wrong while generating refresh and access token");
     }
 };
