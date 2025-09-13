@@ -1,21 +1,28 @@
 {
   "version": 2,
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/v1/(.*)",
-      "destination": "/api/index"
+      "destination": "/api/index.js"
     },
     {
       "source": "/(.*)",
-      "destination": "/api/index"
+      "destination": "/api/index.js"
     }
   ],
   "env": {
     "NODE_ENV": "production"
   },
   "functions": {
-    "src/index.js": {
-      "maxDuration": 30
+    "api/index.js": {
+      "maxDuration": 30,
+      "memory": 1024
     }
   },
   "headers": [
@@ -24,15 +31,23 @@
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "*"
+          "value": "https://nexus-pay-fintech-application-8gni.vercel.app"
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
+          "value": "GET, POST, PUT, DELETE, OPTIONS, PATCH"
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization, X-Requested-With"
+          "value": "Content-Type, Authorization, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version"
+        },
+        {
+          "key": "Access-Control-Allow-Credentials",
+          "value": "true"
+        },
+        {
+          "key": "Access-Control-Max-Age",
+          "value": "86400"
         }
       ]
     }

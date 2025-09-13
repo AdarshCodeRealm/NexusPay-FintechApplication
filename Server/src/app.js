@@ -36,10 +36,7 @@ app.use(
   Cors({
     origin: [
       "http://localhost:5173", // Vite dev server
-      "http://localhost:3000", // Alternative dev port
       "https://nexus-pay-fintech-application-8gni.vercel.app", // Production frontend
-      "https://nexus-pay-fintech-application-8gni-ouod51nb5.vercel.app", // Updated production frontend
-      "https://nexaspay-fintech.vercel.app", // Alternative production URL
       process.env.CORS_ORIGIN
     ].filter(Boolean), // Remove any undefined values
     credentials: true,
@@ -71,12 +68,53 @@ app.use("/api/v1/users", userRouter)
 app.use("/api/v1/payments", paymentRouter)
 app.use("/api/v1/test", testRouter)
 
+// Health check route for monitoring
+app.get("/api/v1/health", async (req, res) => {
+  try {
+    // Test database connection
+    await sequelize.authenticate();
+    
+    res.status(200).json({
+      success: true,
+      message: "API is healthy",
+      database: {
+        status: "Connected",
+        host: sequelize.config.host,
+        database: sequelize.config.database
+      },
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      version: "1.0.1"
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "API is unhealthy - Database connection failed",
+      database: {
+        status: "Disconnected",
+        error: error.message
+      },
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      version: "1.0.1"
+    })
+  }
+})
+
 // Root route for Vercel
 app.get("/", (req, res) => {
   res.status(200).json({ 
     success: true, 
     message: "Fintech API Server is running",
-    version: "1.0.1"
+    version: "1.0.1",
+    endpoints: {
+      health: "/api/v1/health",
+      auth: "/api/v1/auth",
+      wallet: "/api/v1/wallet",
+      payments: "/api/v1/payments",
+      users: "/api/v1/users",
+      beneficiaries: "/api/v1/beneficiaries"
+    }
   })
 })
 

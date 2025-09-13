@@ -5,13 +5,13 @@ import dotenv from "dotenv";
 // Load environment variables with absolute path
 dotenv.config({ path: "./.env" });
 
-// Hardcoded database configuration
+// Database configuration using correct environment variables
 const dbConfig = {
-  host: 'database-1.csv82cm2o697.us-east-1.rds.amazonaws.com',
-  port: 3306,
-  user: 'admin',
-  password: 'Admin$123', // Replace with your actual password
-  database: 'fintech_db'
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 3306,
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || 'admin',
+  database: process.env.DB_NAME || 'fintech_db'
 };
 
 console.log('🔧 Database config:', {
@@ -22,7 +22,7 @@ console.log('🔧 Database config:', {
   password: '***HIDDEN***'
 });
 
-// Sequelize instance with serverless optimizations
+// Sequelize instance optimized for Amazon RDS
 const sequelize = new Sequelize(
   dbConfig.database,
   dbConfig.user,
@@ -31,39 +31,42 @@ const sequelize = new Sequelize(
     host: dbConfig.host,
     port: parseInt(dbConfig.port),
     dialect: 'mysql',
-    dialectModule: mysql2, // Use mysql2 directly instead of mysql2/promise
-    logging: process.env.NODE_ENV === 'development' ? console.log : false, // Enable logging only in development
+    dialectModule: mysql2,
+    logging: process.env.NODE_ENV === 'development' ? console.log : false,
     pool: {
-      max: process.env.NODE_ENV === 'production' ? 2 : 5, // Reduced for serverless
-      min: 0,
-      acquire: 30000, // acquireTimeout should be in pool config, not dialectOptions
+      max: process.env.NODE_ENV === 'production' ? 10 : 15, // Optimized for RDS
+      min: 2,
+      acquire: 30000, // Reduced timeout for RDS
       idle: 10000,
     },
     dialectOptions: {
-      connectTimeout: 30000, // This is valid for MySQL2
-      // Removed acquireTimeout and timeout as they're not valid MySQL2 connection options
-      // SSL configuration for production databases
-      ssl: process.env.NODE_ENV === 'production' ? {
-        require: false,
+      // Removed invalid options: acquireTimeout, timeout
+      connectTimeout: 30000, // Valid option for connection timeout
+      // SSL configuration for Amazon RDS
+      ssl: process.env.NODE_ENV === 'production' || dbConfig.host.includes('rds.amazonaws.com') ? {
+        require: true,
         rejectUnauthorized: false
-      } : false
+      } : false,
+      // Additional RDS optimizations
+      charset: 'utf8mb4'
+      // Removed collate option as it's invalid for dialectOptions
     },
     define: {
       timestamps: true,
       underscored: false,
       freezeTableName: true,
     },
-    // Add retry configuration for production
     retry: {
       max: 3,
-      timeout: 30000, // timeout belongs in retry config, not dialectOptions
+      timeout: 20000, // Reduced for faster retries
       match: [
         /ECONNRESET/,
         /ENOTFOUND/,
         /ECONNREFUSED/,
         /ETIMEDOUT/,
         /EHOSTUNREACH/,
-        /EAI_AGAIN/
+        /EAI_AGAIN/,
+        /ER_ACCESS_DENIED_ERROR/
       ]
     }
   }
@@ -71,28 +74,52 @@ const sequelize = new Sequelize(
 
 let isConnected = false;
 
-// Create database if it doesn't exist (simplified for serverless)
+// Improved database creation for Amazon RDS
 async function createDatabase() {
-  const connection = mysql2.createConnection({
-    host: dbConfig.host,
-    port: dbConfig.port,
-    user: dbConfig.user,
-    password: dbConfig.password
-  });
-
+  let connection;
   try {
+    connection = mysql2.createConnection({
+      host: dbConfig.host,
+      port: dbConfig.port,
+      user: dbConfig.user,
+      password: dbConfig.password,
+      // Removed invalid options: connectTimeout, acquireTimeout, timeout
+      ssl: dbConfig.host.includes('rds.amazonaws.com') ? {
+        require: true,
+        rejectUnauthorized: false
+      } : false
+    });
+
     await new Promise((resolve, reject) => {
-      connection.execute(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``, (error, results) => {
-        if (error) reject(error);
-        else resolve(results);
+      connection.connect((err) => {
+        if (err) {
+          console.error('❌ Failed to connect to MySQL server:', err.message);
+          reject(err);
+        } else {
+          console.log('✅ Connected to MySQL server');
+          resolve();
+        }
       });
     });
-    console.log(`✅ Database '${dbConfig.database}' created or already exists`);
+
+    await new Promise((resolve, reject) => {
+      connection.execute(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\``, (error, results) => {
+        if (error) {
+          console.error('❌ Error creating database:', error.message);
+          reject(error);
+        } else {
+          console.log(`✅ Database '${dbConfig.database}' created or already exists`);
+          resolve(results);
+        }
+      });
+    });
   } catch (error) {
-    console.error('❌ Error creating database:', error.message);
+    console.error('❌ Database creation failed:', error.message);
     throw error;
   } finally {
-    connection.end();
+    if (connection) {
+      connection.end();
+    }
   }
 }
 
