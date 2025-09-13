@@ -19,7 +19,7 @@ const usePlatformStats = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://server-one-sooty.vercel.app/api/v1';
         const response = await fetch(`${apiBaseUrl}/users/platform-stats`);
         const data = await response.json();
         
