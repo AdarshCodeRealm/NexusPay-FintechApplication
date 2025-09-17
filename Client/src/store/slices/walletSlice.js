@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { api } from '../../lib/api.js';
+import { generateBulkTransactionPDF, generateIndividualReceipt, shareTransactionReceipt, printTransactionReceipt } from '../../lib/pdfUtils.jsx';
 
 // Async thunks for wallet operations
 export const getWalletBalance = createAsyncThunk(
@@ -124,7 +125,7 @@ export const downloadTransactionReceipt = createAsyncThunk(
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `receipt-${transactionId}.pdf`);
+      link.setAttribute('download', `NEXASPAY-Receipt-${transactionId}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -133,6 +134,18 @@ export const downloadTransactionReceipt = createAsyncThunk(
       return { transactionId };
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to download receipt');
+    }
+  }
+);
+
+export const createReceiptShareLink = createAsyncThunk(
+  'wallet/createReceiptShareLink',
+  async (transactionId, { rejectWithValue }) => {
+    try {
+      const response = await api.post(`/payments/receipt/${transactionId}/share`);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to create share link');
     }
   }
 );
@@ -173,6 +186,128 @@ export const getTransferLimits = createAsyncThunk(
   }
 );
 
+export const generateBulkReceipt = createAsyncThunk(
+  'wallet/generateBulkReceipt',
+  async ({ transactions, user, dateRange }, { rejectWithValue }) => {
+    try {
+      // Use client-side PDF generation for bulk receipts
+      const fileName = await generateBulkTransactionPDF(transactions, user, dateRange);
+      return { fileName, transactionCount: transactions.length };
+    } catch (error) {
+      return rejectWithValue(error.message || 'Failed to generate bulk receipt');
+    }
+  }
+);
+
+// Update existing individual receipt action with fallback to client-side generation
+export const generateIndividualReceiptAction = createAsyncThunk(
+  'wallet/generateIndividualReceipt',
+  async ({ transaction, user }, { rejectWithValue }) => {
+    try {
+      // First try server-side receipt generation
+      try {
+        const response = await api.get(`/payments/receipt/${transaction.id}`, {
+          responseType: 'blob'
+        });
+        
+        // Create download link
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `NEXASPAY-Receipt-${transaction.referenceId || transaction.id}.pdf`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        
+        return { fileName: `Receipt-${transaction.id}`, transactionId: transaction.id, method: 'server' };
+      } catch (serverError) {
+        console.warn('Server-side receipt generation failed, falling back to client-side:', serverError);
+        
+        // Fallback to client-side receipt generation
+        const { generateIndividualReceipt } = await import('../../lib/pdfUtils.jsx');
+        const fileName = await generateIndividualReceipt(transaction, user);
+        return { fileName, transactionId: transaction.id, method: 'client' };
+      }
+    } catch (error) {
+      console.error('All receipt generation methods failed:', error);
+      return rejectWithValue(error.message || 'Failed to download receipt');
+    }
+  }
+);
+
+// Enhanced share receipt functionality with public link
+export const shareTransactionReceiptAction = createAsyncThunk(
+  'wallet/shareTransactionReceipt',
+  async ({ transaction, user }, { rejectWithValue }) => {
+    try {
+      // First create a share link
+      const shareResponse = await api.post(`/payments/receipt/${transaction.id}/share`);
+      const shareData = shareResponse.data.data;
+      
+      // Try to use Web Share API if available (mobile)
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: 'NEXASPAY Transaction Receipt',
+            text: `Transaction Receipt for ₹${Math.abs(transaction.amount)} - ${transaction.description || 'Payment'}`,
+            url: shareData.shareUrl
+          });
+          return { success: true, method: 'native_share', shareUrl: shareData.shareUrl };
+        } catch (shareError) {
+          // If native share fails, fall back to clipboard
+          console.log('Native share failed, falling back to clipboard');
+        }
+      }
+      
+      // Fallback: Copy link to clipboard
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(shareData.shareUrl);
+        alert('Receipt link copied to clipboard! Valid for 7 days.');
+        return { success: true, method: 'clipboard', shareUrl: shareData.shareUrl };
+      }
+      
+      // Final fallback: Show the link in a prompt
+      const userAction = prompt(
+        'Receipt share link (valid for 7 days). Copy this link to share:',
+        shareData.shareUrl
+      );
+      
+      return { success: true, method: 'manual', shareUrl: shareData.shareUrl };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to share receipt');
+    }
+  }
+);
+
+// Remove print functionality since we're removing the print button
+// Keep the action but make it redirect to download instead
+export const printTransactionReceiptAction = createAsyncThunk(
+  'wallet/printTransactionReceipt',
+  async ({ transaction, user }, { rejectWithValue }) => {
+    try {
+      // Redirect print to download functionality
+      const response = await api.get(`/payments/receipt/${transaction.id}`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `NEXASPAY-Receipt-${transaction.referenceId || transaction.id}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      return { success: true, transactionId: transaction.id };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to download receipt');
+    }
+  }
+);
+
 const walletSlice = createSlice({
   name: 'wallet',
   initialState: {
@@ -197,6 +332,7 @@ const walletSlice = createSlice({
     transferLimits: null,
     otpSent: false,
     secureTransferLoading: false,
+    shareLinks: {} // Store share links by transaction ID
   },
   reducers: {
     clearError: (state) => {
@@ -222,6 +358,10 @@ const walletSlice = createSlice({
     setTransferLimits: (state, action) => {
       state.transferLimits = action.payload;
     },
+    clearShareLink: (state, action) => {
+      const transactionId = action.payload;
+      delete state.shareLinks[transactionId];
+    }
   },
   extraReducers: (builder) => {
     builder
@@ -405,6 +545,100 @@ const walletSlice = createSlice({
       .addCase(getTransferLimits.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
+      })
+      
+      // Generate Bulk Receipt
+      .addCase(generateBulkReceipt.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(generateBulkReceipt.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        // Can add success message or notification here if needed
+      })
+      .addCase(generateBulkReceipt.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Generate Individual Receipt - Updated
+      .addCase(generateIndividualReceiptAction.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(generateIndividualReceiptAction.fulfilled, (state, action) => {
+        state.operationLoading = false;
+      })
+      .addCase(generateIndividualReceiptAction.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Share Transaction Receipt - Enhanced
+      .addCase(shareTransactionReceiptAction.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(shareTransactionReceiptAction.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        // Store the share URL for future reference
+        const { shareUrl } = action.payload;
+        if (shareUrl && action.meta.arg.transaction?.id) {
+          state.shareLinks[action.meta.arg.transaction.id] = {
+            url: shareUrl,
+            method: action.payload.method,
+            createdAt: new Date().toISOString()
+          };
+        }
+      })
+      .addCase(shareTransactionReceiptAction.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Print Transaction Receipt - Modified to download
+      .addCase(printTransactionReceiptAction.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(printTransactionReceiptAction.fulfilled, (state, action) => {
+        state.operationLoading = false;
+      })
+      .addCase(printTransactionReceiptAction.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Download Receipt
+      .addCase(downloadTransactionReceipt.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(downloadTransactionReceipt.fulfilled, (state, action) => {
+        state.operationLoading = false;
+      })
+      .addCase(downloadTransactionReceipt.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload;
+      })
+      
+      // Create Share Link
+      .addCase(createReceiptShareLink.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(createReceiptShareLink.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        const { transaction, shareUrl } = action.payload.data;
+        state.shareLinks[transaction.id] = {
+          url: shareUrl,
+          expiresAt: action.payload.data.expiresAt,
+          createdAt: new Date().toISOString()
+        };
+      })
+      .addCase(createReceiptShareLink.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload;
       });
   },
 });
@@ -416,6 +650,7 @@ export const {
   clearPaymentUrl, 
   setPendingTransaction,
   clearTransferOTP,
-  setTransferLimits
+  setTransferLimits,
+  clearShareLink
 } = walletSlice.actions;
 export default walletSlice.reducer;

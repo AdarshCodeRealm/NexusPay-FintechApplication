@@ -134,6 +134,36 @@ const Transaction = sequelize.define('Transaction', {
     allowNull: true,
     field: 'transaction_metadata', // Map to database column name
   },
+  // New fields based on your requirements
+  ledgerDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    field: 'ledger_date', // Map to database column name
+  },
+  userCode: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+    field: 'user_code', // Map to database column name
+  },
+  ledgerType: {
+    type: DataTypes.ENUM('TopIn', 'Fund Transfer Transaction', 'Wallet Topup', 'Payment', 'Commission', 'Cashback', 'Refund'),
+    allowNull: true,
+    field: 'ledger_type', // Map to database column name
+  },
+  remarks: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  debitAmount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    field: 'debit_amount', // Map to database column name
+  },
+  creditAmount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    field: 'credit_amount', // Map to database column name
+  },
   ipAddress: {
     type: DataTypes.STRING,
     allowNull: true,

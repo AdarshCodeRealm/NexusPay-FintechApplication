@@ -6,22 +6,30 @@ import {
   checkPaymentStatus, 
   getPaymentHistory, 
   handlePhonePeWebhook, 
-  downloadTransactionReceipt 
+  downloadTransactionReceipt,
+  createReceiptShareLink,
+  viewPublicReceipt,
+  downloadPublicReceipt
 } from "../controllers/payment.controller.js";
 import { auth } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
-// Public routes
+// Public routes (no authentication required)
 router.route("/status").get(paymentStatus);
 router.route("/verify").get(verifyPhonePePayment);
 router.route("/webhook").post(handlePhonePeWebhook);
+
+// Public receipt routes (no authentication required)
+router.route("/public-receipt/:shareToken").get(viewPublicReceipt);
+router.route("/public-receipt/:shareToken/download").get(downloadPublicReceipt);
 
 // Protected routes
 router.route("/initiate").post(auth, initiatePhonePePayment);
 router.route("/check/:transactionId").get(auth, checkPaymentStatus);
 router.route("/history").get(auth, getPaymentHistory);
 router.route("/receipt/:transactionId").get(auth, downloadTransactionReceipt);
+router.route("/receipt/:transactionId/share").post(auth, createReceiptShareLink);
 
 // Admin/Debug routes for checking and fixing payment issues
 router.route("/debug/check-payments").get(auth, async (req, res) => {

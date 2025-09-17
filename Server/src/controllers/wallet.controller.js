@@ -4,11 +4,7 @@ import { User, Transaction } from "../models/index.js";
 import { ApiResponse } from "../utils/utils/ApiResponse.js";
 import { sequelize } from "../db/index.js";
 import { Op } from "sequelize";
-
-// Helper function to generate unique reference ID
-const generateReferenceId = () => {
-    return `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
-};
+import { generateEnhancedTransactionId, generateReferenceId } from "../utils/transactionUtils.js";
 
 const getWalletBalance = asyncHandler(async (req, res) => {
     const user = await User.findByPk(req.user.id, {

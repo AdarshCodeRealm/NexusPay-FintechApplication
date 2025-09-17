@@ -7,7 +7,7 @@ import Dashboard from './components/Dashboard';
 import PaymentSuccess from './components/PaymentSuccess';
 import PaymentFailure from './components/PaymentFailure';
 import LoadingScreen from './components/LoadingScreen';
-import DatabaseStatus from './components/DatabaseStatus';
+import PublicReceiptViewer from './components/PublicReceiptViewer';
 import './App.css';
 
 function App() {
@@ -30,19 +30,15 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Database Status Bar */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2">
-        <div className="max-w-7xl mx-auto">
-          <DatabaseStatus />
-        </div>
-      </div>
-      
       <Router>
         <Routes>
           {/* Public routes for payment callbacks */}
           <Route path="/payment-success" element={<PaymentSuccess />} />
           <Route path="/payment-failure" element={<PaymentFailure />} />
           <Route path="/payment-callback" element={<PaymentSuccess />} />
+          
+          {/* Public receipt viewer route - no authentication required */}
+          <Route path="/receipt/:shareToken" element={<PublicReceiptViewer />} />
           
           {/* Protected routes */}
           <Route 

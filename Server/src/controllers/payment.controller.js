@@ -3,12 +3,14 @@ import axios from 'axios';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { Op } from 'sequelize';
 import { asyncHandler } from "../utils/utils/asyncHandler.js";
 import { ApiError } from "../utils/utils/ApiError.js";
 import { ApiResponse } from "../utils/utils/ApiResponse.js";
 import { User, Transaction, Payment } from "../models/index.js";
 import { sequelize } from "../db/index.js";
 import { generateTransactionReceipt, generateTextReceipt } from "../utils/receiptUtils.js";
+import { generateEnhancedTransactionId, generateReferenceId } from "../utils/transactionUtils.js";
 
 // PhonePe Configuration with better error handling
 // const MERCHANT_KEY = process.env.PHONEPE_SALT_KEY || "099eb0cd-02cf-4e2a-8aca-3e6c6aff0399";
@@ -593,37 +595,49 @@ const downloadTransactionReceipt = asyncHandler(async (req, res) => {
       throw new ApiError(404, "Transaction not found or access denied");
     }
     
-    // Check if receipt exists in metadata
-    const receiptFile = transaction.metadata?.receiptFile;
+    // Parse transaction metadata to check for existing receipt
+    let metadata = {};
+    try {
+      metadata = JSON.parse(transaction.transactionMetadata || '{}');
+    } catch (e) {
+      metadata = {};
+    }
+    
+    const receiptFile = metadata.receiptFile;
     
     if (!receiptFile) {
       // Generate receipt if it doesn't exist
       const receiptData = {
         transactionId: transaction.id,
         amount: transaction.amount,
-        type: transaction.type,
+        type: transaction.transactionType || transaction.type || 'transaction',
         status: transaction.status,
         createdAt: transaction.createdAt,
         user: transaction.user,
-        balanceBefore: transaction.balanceBefore,
-        balanceAfter: transaction.balanceAfter,
-        description: transaction.description,
-        referenceId: transaction.referenceId,
-        paymentMethod: transaction.metadata?.paymentMethod || 'WALLET'
+        balanceBefore: transaction.openingBalance || 0,
+        balanceAfter: transaction.closingBalance || transaction.balanceAfter || 0,
+        description: transaction.description || `${transaction.transactionType || 'Transaction'} - ₹${Math.abs(transaction.amount)}`,
+        referenceId: transaction.referenceNumber || transaction.referenceId || transaction.id,
+        paymentMethod: metadata.paymentMethod || 'WALLET',
+        ledgerDate: new Date(transaction.createdAt).toISOString().split('T')[0],
+        userCode: transaction.user.phone || `CSP${transaction.user.id}`,
+        ledgerType: transaction.transactionType === 'deposit' ? 'TopIn' : 'Transaction',
+        remarks: transaction.description || `Transaction by ${transaction.user.fullName}`
       };
       
       const newReceiptFile = await generateTransactionReceipt(receiptData);
       
       // Update transaction with receipt file
       await transaction.update({
-        metadata: {
-          ...transaction.metadata,
-          receiptFile: newReceiptFile
-        }
+        transactionMetadata: JSON.stringify({
+          ...metadata,
+          receiptFile: newReceiptFile,
+          receiptGeneratedAt: new Date().toISOString()
+        })
       });
       
       const filePath = path.join(process.cwd(), 'public', 'receipts', newReceiptFile);
-      return res.download(filePath, newReceiptFile);
+      return res.download(filePath, `NEXASPAY-Receipt-${transaction.referenceNumber || transaction.id}.pdf`);
     }
     
     // Serve existing receipt
@@ -631,14 +645,312 @@ const downloadTransactionReceipt = asyncHandler(async (req, res) => {
     
     // Check if file exists
     if (!fs.existsSync(filePath)) {
-      throw new ApiError(404, "Receipt file not found");
+      // Receipt file is missing, regenerate it
+      console.log(`Receipt file missing: ${receiptFile}, regenerating...`);
+      
+      const receiptData = {
+        transactionId: transaction.id,
+        amount: transaction.amount,
+        type: transaction.transactionType || transaction.type || 'transaction',
+        status: transaction.status,
+        createdAt: transaction.createdAt,
+        user: transaction.user,
+        balanceBefore: transaction.openingBalance || 0,
+        balanceAfter: transaction.closingBalance || transaction.balanceAfter || 0,
+        description: transaction.description || `${transaction.transactionType || 'Transaction'} - ₹${Math.abs(transaction.amount)}`,
+        referenceId: transaction.referenceNumber || transaction.referenceId || transaction.id,
+        paymentMethod: metadata.paymentMethod || 'WALLET',
+        ledgerDate: new Date(transaction.createdAt).toISOString().split('T')[0],
+        userCode: transaction.user.phone || `CSP${transaction.user.id}`,
+        ledgerType: transaction.transactionType === 'deposit' ? 'TopIn' : 'Transaction',
+        remarks: transaction.description || `Transaction by ${transaction.user.fullName}`
+      };
+      
+      const newReceiptFile = await generateTransactionReceipt(receiptData);
+      
+      // Update transaction with new receipt file
+      await transaction.update({
+        transactionMetadata: JSON.stringify({
+          ...metadata,
+          receiptFile: newReceiptFile,
+          receiptRegeneratedAt: new Date().toISOString()
+        })
+      });
+      
+      const newFilePath = path.join(process.cwd(), 'public', 'receipts', newReceiptFile);
+      return res.download(newFilePath, `NEXASPAY-Receipt-${transaction.referenceNumber || transaction.id}.pdf`);
     }
     
-    res.download(filePath, receiptFile);
+    res.download(filePath, `NEXASPAY-Receipt-${transaction.referenceNumber || transaction.id}.pdf`);
     
   } catch (error) {
     console.error("Receipt download error:", error);
     throw new ApiError(500, error.message || "Failed to download receipt");
+  }
+});
+
+/**
+ * Create a shareable public link for receipt
+ */
+const createReceiptShareLink = asyncHandler(async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      throw new ApiError(401, "User authentication required");
+    }
+    
+    // Find the transaction
+    const transaction = await Transaction.findOne({
+      where: { 
+        id: transactionId,
+        userId: userId
+      },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'fullName', 'phone']
+        }
+      ]
+    });
+
+    if (!transaction) {
+      throw new ApiError(404, "Transaction not found or access denied");
+    }
+
+    // Generate a secure share token
+    const shareToken = crypto.randomBytes(32).toString('hex');
+    const shareExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Update transaction with share token
+    await transaction.update({
+      transactionMetadata: JSON.stringify({
+        ...JSON.parse(transaction.transactionMetadata || '{}'),
+        shareToken,
+        shareExpiry: shareExpiry.toISOString(),
+        sharedAt: new Date().toISOString()
+      })
+    });
+
+    // Generate the public share URL
+    const baseUrl = process.env.FRONTEND_URL || 'https://nexus-pay-fintech-application-8gni.vercel.app';
+    const shareUrl = `${baseUrl}/receipt/${shareToken}`;
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        shareUrl,
+        shareToken,
+        expiresAt: shareExpiry.toISOString(),
+        transaction: {
+          id: transaction.id,
+          referenceId: transaction.referenceNumber,
+          amount: transaction.amount,
+          description: transaction.description,
+          createdAt: transaction.createdAt
+        }
+      }, "Receipt share link created successfully")
+    );
+
+  } catch (error) {
+    console.error("Receipt share link creation error:", error);
+    throw new ApiError(500, error.message || "Failed to create share link");
+  }
+});
+
+/**
+ * View public receipt (no authentication required)
+ */
+const viewPublicReceipt = asyncHandler(async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+    
+    if (!shareToken) {
+      throw new ApiError(400, "Share token is required");
+    }
+
+    // Find transaction by share token
+    const transaction = await Transaction.findOne({
+      where: {
+        transactionMetadata: {
+          [Op.like]: `%"shareToken":"${shareToken}"%`
+        }
+      },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'fullName', 'phone']
+        }
+      ]
+    });
+
+    if (!transaction) {
+      throw new ApiError(404, "Receipt not found or link has expired");
+    }
+
+    // Parse metadata to check expiry
+    let metadata = {};
+    try {
+      metadata = JSON.parse(transaction.transactionMetadata || '{}');
+    } catch (e) {
+      metadata = {};
+    }
+
+    // Check if share link has expired
+    if (metadata.shareExpiry && new Date(metadata.shareExpiry) < new Date()) {
+      throw new ApiError(410, "Share link has expired");
+    }
+
+    // Return transaction data for public viewing
+    return res.status(200).json(
+      new ApiResponse(200, {
+        transaction: {
+          id: transaction.id,
+          referenceId: transaction.referenceNumber,
+          amount: transaction.amount,
+          description: transaction.description,
+          status: transaction.status,
+          type: transaction.type,
+          createdAt: transaction.createdAt,
+          balanceAfter: transaction.balanceAfter,
+          user: {
+            name: transaction.user.fullName,
+            phone: transaction.user.phone.replace(/(\d{2})(\d{4})(\d{4})/, '$1****$3') // Mask phone
+          }
+        },
+        sharedAt: metadata.sharedAt,
+        expiresAt: metadata.shareExpiry
+      }, "Receipt retrieved successfully")
+    );
+
+  } catch (error) {
+    console.error("Public receipt view error:", error);
+    throw new ApiError(error.statusCode || 500, error.message || "Failed to retrieve receipt");
+  }
+});
+
+/**
+ * Download public receipt PDF (no authentication required)
+ */
+const downloadPublicReceipt = asyncHandler(async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+    
+    if (!shareToken) {
+      throw new ApiError(400, "Share token is required");
+    }
+
+    // Find transaction by share token
+    const transaction = await Transaction.findOne({
+      where: {
+        transactionMetadata: {
+          [Op.like]: `%"shareToken":"${shareToken}"%`
+        }
+      },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'fullName', 'phone']
+        }
+      ]
+    });
+
+    if (!transaction) {
+      throw new ApiError(404, "Receipt not found or link has expired");
+    }
+
+    // Parse metadata to check expiry
+    let metadata = {};
+    try {
+      metadata = JSON.parse(transaction.transactionMetadata || '{}');
+    } catch (e) {
+      metadata = {};
+    }
+
+    // Check if share link has expired
+    if (metadata.shareExpiry && new Date(metadata.shareExpiry) < new Date()) {
+      throw new ApiError(410, "Share link has expired");
+    }
+
+    // Generate receipt data with proper field mapping
+    const receiptData = {
+      transactionId: transaction.id,
+      amount: transaction.amount,
+      type: transaction.transactionType || transaction.type || 'transaction',
+      status: transaction.status,
+      createdAt: transaction.createdAt,
+      user: transaction.user,
+      balanceBefore: transaction.openingBalance || transaction.balanceBefore || 0,
+      balanceAfter: transaction.closingBalance || transaction.balanceAfter || 0,
+      description: transaction.description || `${transaction.transactionType || 'Transaction'} - ₹${Math.abs(transaction.amount)}`,
+      referenceId: transaction.referenceNumber || transaction.referenceId || transaction.id,
+      paymentMethod: metadata.paymentMethod || 'WALLET',
+      ledgerDate: new Date(transaction.createdAt).toISOString().split('T')[0],
+      userCode: transaction.user.phone || `CSP${transaction.user.id}`,
+      ledgerType: (transaction.transactionType || transaction.type) === 'deposit' ? 'TopIn' : 'Transaction',
+      remarks: transaction.description || `Transaction by ${transaction.user.fullName}`
+    };
+
+    console.log('Generating public receipt for:', {
+      transactionId: transaction.id,
+      shareToken: shareToken.substring(0, 8) + '...',
+      amount: transaction.amount,
+      user: transaction.user.fullName
+    });
+
+    // Generate receipt PDF
+    const receiptFileName = await generateTransactionReceipt(receiptData);
+    const filePath = path.join(process.cwd(), 'public', 'receipts', receiptFileName);
+    
+    // Check if file exists and is valid
+    if (!fs.existsSync(filePath)) {
+      console.error('Receipt file not found at:', filePath);
+      throw new ApiError(404, "Receipt file not found");
+    }
+
+    // Check file size to ensure it's not corrupted
+    const stats = fs.statSync(filePath);
+    if (stats.size === 0) {
+      console.error('Receipt file is empty:', filePath);
+      throw new ApiError(500, "Receipt file is corrupted");
+    }
+
+    console.log('Serving receipt file:', {
+      fileName: receiptFileName,
+      filePath,
+      fileSize: stats.size
+    });
+
+    // Set proper headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="NEXASPAY-Receipt-${transaction.referenceNumber || transaction.id}.pdf"`);
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // Use res.download() for better file handling
+    res.download(filePath, `NEXASPAY-Receipt-${transaction.referenceNumber || transaction.id}.pdf`, (err) => {
+      if (err) {
+        console.error('Error sending file:', err);
+        if (!res.headersSent) {
+          throw new ApiError(500, "Failed to send receipt file");
+        }
+      } else {
+        console.log('Receipt downloaded successfully for shareToken:', shareToken.substring(0, 8) + '...');
+      }
+    });
+
+  } catch (error) {
+    console.error("Public receipt download error:", error);
+    
+    // If headers haven't been sent yet, send error response
+    if (!res.headersSent) {
+      throw new ApiError(error.statusCode || 500, error.message || "Failed to download receipt");
+    }
   }
 });
 
@@ -763,7 +1075,12 @@ const processSuccessfulPaymentWalletUpdate = async (payment, phonepeResponseData
         balanceAfter,
         description: walletTransaction.description,
         referenceId: walletTransaction.referenceNumber,
-        paymentMethod: 'PHONEPE'
+        paymentMethod: 'PHONEPE',
+        // Enhanced fields for comprehensive receipt matching transaction table structure
+        ledgerDate: new Date().toISOString().split('T')[0], // Current date as ledger date
+        userCode: user.phone || `CSP${user.id}`,
+        ledgerType: 'TopIn via Payment Gateway PhonePe by CSP' + user.id,
+        remarks: `TopIn via Payment Gateway PhonePe by CSP${user.id} - ₹${transactionAmount}`
       };
       
       const receiptFileName = await generateTransactionReceipt(receiptData);
@@ -805,5 +1122,8 @@ export {
   checkPaymentStatus,
   getPaymentHistory,
   handlePhonePeWebhook,
-  downloadTransactionReceipt
+  downloadTransactionReceipt,
+  createReceiptShareLink,
+  viewPublicReceipt,
+  downloadPublicReceipt
 };

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { getWalletBalance, getTransactionHistory } from '../store/slices/walletSlice';
+import { getWalletBalance, getTransactionHistory, generateBulkReceipt } from '../store/slices/walletSlice';
 import { logoutUser } from '../store/slices/authSlice';
 import WalletComponent from './WalletComponent';
 import TransferComponent from './TransferComponent';
@@ -9,6 +9,9 @@ import ProfileComponent from './ProfileComponent';
 import KYCComponent from './KYCComponent';
 import SecurityComponent from './SecurityComponent';
 import MobileTransferComponent from './MobileTransferComponent';
+import BBPSComponent from './BBPSComponent';
+import TransactionHistoryComponent from './TransactionHistoryComponent';
+import QRCodeComponent from './QRCodeComponent';
 import { 
   Bell, 
   QrCode, 
@@ -21,10 +24,7 @@ import {
   Lightbulb,
   LogOut,
   Home,
-  CreditCard,
-  ArrowLeftRight,
-  Phone,
-  MoreHorizontal,
+  Wallet,
   TrendingUp,
   DollarSign,
   BarChart3,
@@ -33,11 +33,8 @@ import {
   AlertTriangle,
   CheckCircle,
   Clock,
-  Camera,
-  Settings,
-  FileText,
   Shield,
-  Lock
+  Receipt
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -49,6 +46,8 @@ const Dashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showMobileTransfer, setShowMobileTransfer] = useState(false);
   const [showWalletTopup, setShowWalletTopup] = useState(false);
+  const [selectedBBPSCategory, setSelectedBBPSCategory] = useState(null);
+  const [showQRCode, setShowQRCode] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -63,10 +62,17 @@ const Dashboard = () => {
       setActiveTab('wallet');
     };
 
+    const handleNavigateToBBPS = (event) => {
+      setSelectedBBPSCategory(event.detail?.category || null);
+      setActiveTab('bbps');
+    };
+
     window.addEventListener('navigateToWallet', handleNavigateToWallet);
+    window.addEventListener('navigateToBBPS', handleNavigateToBBPS);
     
     return () => {
       window.removeEventListener('navigateToWallet', handleNavigateToWallet);
+      window.removeEventListener('navigateToBBPS', handleNavigateToBBPS);
     };
   }, []);
 
@@ -79,15 +85,18 @@ const Dashboard = () => {
     setShowWalletTopup(true);
   };
 
+  // Simplified menu items based on the image design
   const menuItems = [
-    { id: 'dashboard', label: 'Home', icon: <Home /> },
-    { id: 'profile', label: 'Profile', icon: <User /> },
-    { id: 'kyc', label: 'KYC', icon: <FileText /> },
-    { id: 'security', label: 'Security', icon: <Shield /> },
-    { id: 'wallet', label: 'Cards', icon: <CreditCard /> },
-    { id: 'transfer', label: 'Transfers', icon: <ArrowLeftRight /> },
-    { id: 'recharge', label: 'Recharge', icon: <Phone /> }
-    
+    { id: 'dashboard', label: 'Home', icon: <Home className="w-5 h-5" /> },
+    { id: 'wallet', label: 'Wallet', icon: <Wallet className="w-5 h-5" /> },
+    { id: 'bbps', label: 'Bill Pay', icon: <Receipt className="w-5 h-5" /> },
+    { id: 'transactions', label: 'Transactions', icon: <History className="w-5 h-5" /> },
+    { id: 'profile', label: 'Profile', icon: <User className="w-5 h-5" /> },
+  ];
+
+  // Add QR Code as a special menu item in sidebar
+  const specialMenuItems = [
+    { id: 'qrcode', label: 'QR Code', icon: <QrCode />, action: () => setShowQRCode(true) }
   ];
 
   // Helper function to get KYC status info
@@ -116,12 +125,22 @@ const Dashboard = () => {
     if (showMobileTransfer) {
       return <MobileTransferComponent onBack={() => setShowMobileTransfer(false)} />;
     }
+
+    // Show QRCodeComponent if QR code is active
+    if (showQRCode) {
+      return <QRCodeComponent onClose={() => setShowQRCode(false)} />;
+    }
     
     switch (activeTab) {
       case 'wallet':
         return <WalletComponent />;
       case 'transfer':
         return <TransferComponent />;
+      case 'bbps':
+        return <BBPSComponent selectedCategory={selectedBBPSCategory} onBack={() => {
+          setActiveTab('dashboard');
+          setSelectedBBPSCategory(null);
+        }} />;
       case 'recharge':
         return <RechargeComponent />;
       case 'profile':
@@ -130,8 +149,10 @@ const Dashboard = () => {
         return <KYCComponent />;
       case 'security':
         return <SecurityComponent />;
+      case 'transactions':
+        return <TransactionHistoryComponent />;
       default:
-        return <DashboardContent setShowMobileTransfer={setShowMobileTransfer} handleTopUpWallet={handleTopUpWallet} />;
+        return <DashboardContent setShowMobileTransfer={setShowMobileTransfer} handleTopUpWallet={handleTopUpWallet} setActiveTab={setActiveTab} setShowQRCode={setShowQRCode} />;
     }
   };
 
@@ -157,7 +178,10 @@ const Dashboard = () => {
 
             {/* Right: QR Code and Notifications */}
             <div className="flex items-center space-x-3">
-              <button className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+              <button 
+                onClick={() => setShowQRCode(true)}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              >
                 <QrCode className="w-6 h-6 text-gray-700" />
               </button>
               <button className="p-2 rounded-lg hover:bg-gray-100 transition-colors relative">
@@ -410,14 +434,141 @@ const Dashboard = () => {
   );
 };
 
-const DashboardContent = ({ setShowMobileTransfer, handleTopUpWallet }) => {
+const DashboardContent = ({ setShowMobileTransfer, handleTopUpWallet, setActiveTab, setShowQRCode }) => {
+  const dispatch = useDispatch();
   const { user } = useSelector((state) => state.auth);
-  const { balance, transactions, transactionLoading } = useSelector((state) => state.wallet);
+  const { balance, transactions, transactionLoading, operationLoading } = useSelector((state) => state.wallet);
+  // Removed showAllBillCategories state as we don't need show/hide functionality
+
+  // Function to handle bulk report generation
+  const handleGenerateBulkReport = async () => {
+    if (!transactions || transactions.length === 0) {
+      alert('No transactions available to generate report');
+      return;
+    }
+
+    try {
+      await dispatch(generateBulkReceipt({
+        transactions,
+        user,
+        dateRange: 'Recent Transactions'
+      }));
+      
+      alert(`Transaction report generated successfully! (${transactions.length} transactions)`);
+    } catch (error) {
+      console.error('Failed to generate bulk report:', error);
+      alert('Failed to generate transaction report. Please try again.');
+    }
+  };
+
+  // Top 4 most popular BBPS categories for dashboard
+  const popularBillCategories = [
+    {
+      id: 'electricity',
+      name: 'Electricity',
+      icon: '⚡',
+      color: 'bg-yellow-500',
+      description: 'Pay electricity bills',
+      count: '150+ Providers'
+    },
+    {
+      id: 'mobile',
+      name: 'Mobile',
+      icon: '📱',
+      color: 'bg-blue-500',
+      description: 'Mobile postpaid bills',
+      count: '25+ Operators'
+    },
+    {
+      id: 'dth',
+      name: 'DTH/Cable',
+      icon: '📺',
+      color: 'bg-purple-500',
+      description: 'DTH & Cable TV',
+      count: '15+ Providers'
+    },
+    {
+      id: 'gas',
+      name: 'Gas',
+      icon: '🔥',
+      color: 'bg-orange-500',
+      description: 'LPG & PNG bills',
+      count: '12+ Companies'
+    }
+  ];
+
+  // All BBPS categories
+  const allBillCategories = [
+    ...popularBillCategories,
+    {
+      id: 'water',
+      name: 'Water',
+      icon: '💧',
+      color: 'bg-cyan-500',
+      description: 'Municipal water bills',
+      count: '50+ Boards'
+    },
+    {
+      id: 'fastag',
+      name: 'FASTag',
+      icon: '🚗',
+      color: 'bg-green-500',
+      description: 'Insurance premiums',
+      count: '30+ Companies'
+    },
+    {
+      id: 'education',
+      name: 'Education',
+      icon: '🎓',
+      color: 'bg-indigo-500',
+      description: 'School & college fees',
+      count: '100+ Institutions'
+    },
+    {
+      id: 'municipal',
+      name: 'Municipal',
+      icon: '🏛️',
+      color: 'bg-gray-500',
+      description: 'Municipal taxes',
+      count: '75+ Corporations'
+    },
+    {
+      id: 'health',
+      name: 'Health',
+      icon: '❤️',
+      color: 'bg-pink-500',
+      description: 'Health insurance',
+      count: '20+ Providers'
+    },
+    {
+      id: 'broadband',
+      name: 'Broadband',
+      icon: '📶',
+      color: 'bg-teal-500',
+      description: 'Internet & broadband',
+      count: '40+ ISPs'
+    },
+    {
+      id: 'creditcard',
+      name: 'Credit Card',
+      icon: '💳',
+      color: 'bg-violet-500',
+      description: 'Credit card bills',
+      count: '25+ Banks'
+    }
+  ];
 
   // Function to handle "See all" transactions click
   const handleSeeAllTransactions = () => {
-    // Trigger an event that the parent Dashboard component will listen for
-    const event = new CustomEvent('navigateToWallet');
+    // Navigate to transactions tab instead of wallet
+    setActiveTab('transactions');
+  };
+
+  // Function to handle bill payment category click
+  const handleBillCategoryClick = (category) => {
+    // This would navigate to the full BBPS component with pre-selected category
+    // For now, we'll navigate to the BBPS page
+    const event = new CustomEvent('navigateToBBPS', { detail: { category } });
     window.dispatchEvent(event);
   };
 
@@ -425,32 +576,37 @@ const DashboardContent = ({ setShowMobileTransfer, handleTopUpWallet }) => {
   const handleTransferOption = (option) => {
     switch (option) {
       case 'scan':
-        // Handle scan & pay
-        console.log('Scan & Pay clicked');
+        // Handle scan & pay - Open QR scanner with scan tab active
+        setShowQRCode(true);
+        // Set a flag to indicate we want scan tab active
+        localStorage.setItem('qrCodeActiveTab', 'scan');
         break;
       case 'mobile':
         // Handle transfer to mobile - Show MobileTransferComponent
         setShowMobileTransfer(true);
         break;
       case 'bank':
-        // Handle transfer to bank account
-        console.log('To Bank A/c clicked');
+        // Handle transfer to bank account - Navigate to transfer component
+        setActiveTab('transfer');
         break;
       case 'self':
         // Handle transfer to self account
         console.log('To Self A/c clicked');
         break;
       case 'history':
-        // Handle balance & history
-        console.log('Balance & History clicked');
+        // Handle balance & history - Navigate to transactions
+        setActiveTab('transactions');
         break;
       case 'receive':
-        // Handle receive money
-        console.log('Receive Money clicked');
+        // Handle receive money - Open QR code to show user's payment QR (generate tab)
+        setShowQRCode(true);
+        // Set flag for generate tab
+        localStorage.setItem('qrCodeActiveTab', 'generate');
         break;
       case 'shortcut':
-        // Handle add scan shortcut
-        console.log('Add Scan Shortcut clicked');
+        // Handle add scan shortcut - Open QR scanner
+        setShowQRCode(true);
+        localStorage.setItem('qrCodeActiveTab', 'scan');
         break;
       case 'whats-new':
         // Handle what's new
@@ -612,37 +768,81 @@ const DashboardContent = ({ setShowMobileTransfer, handleTopUpWallet }) => {
         </div>
       </div>
 
-      {/* Finance Section - Mobile only */}
-      <div className="md:hidden space-y-4">
-        <h3 className="text-lg font-semibold text-gray-800">FINANCE</h3>
-        <div className="grid grid-cols-4 gap-4">
-          <button className="flex flex-col items-center space-y-2 p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-white/20">
-            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
-              <BarChart3 className="text-purple-600 text-lg" />
-            </div>
-            <span className="text-xs text-gray-600 text-center">My bonuses</span>
+      {/* BBPS Bill Payment Section */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">BBPS Bill Payment</h3>
+            <p className="text-sm text-gray-600">Pay all your bills instantly & securely</p>
+          </div>
+          <button 
+            onClick={() => handleBillCategoryClick(null)}
+            className="text-blue-600 text-sm font-medium hover:text-blue-700 transition-colors flex items-center space-x-1"
+          >
+            <span>Show More</span>
+            <ArrowUpRight className="w-4 h-4" />
           </button>
-          
-          <button className="flex flex-col items-center space-y-2 p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-white/20">
-            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
-              <TrendingUp className="text-blue-600 text-lg" />
+        </div>
+        
+        {/* Bill Categories Grid */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+          <div className="grid grid-cols-4 gap-3">
+            {popularBillCategories.map((category) => (
+              <button
+                key={category.id}
+                onClick={() => handleBillCategoryClick(category)}
+                className="bg-gray-50 hover:bg-gray-100 rounded-xl p-3 transition-all group border border-gray-100 hover:border-blue-200 hover:shadow-sm"
+              >
+                <div className="text-center">
+                  <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">
+                    {category.icon}
+                  </div>
+                  <h4 className="font-medium text-gray-900 text-xs">{category.name}</h4>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Recent Bills Quick Access */}
+          <div className="mt-6 pt-6 border-t border-gray-100">
+            <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+              <Clock className="w-4 h-4 mr-2 text-gray-600" />
+              Recent Bills
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
+                    <span className="text-sm">⚡</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Adani Electricity</p>
+                    <p className="text-xs text-gray-500">Due: Jan 25</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-900">₹1,245</p>
+                  <button className="text-xs text-blue-600 font-medium">Pay Now</button>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-sm">📱</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Airtel Postpaid</p>
+                    <p className="text-xs text-gray-500">Due: Jan 28</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-900">₹599</p>
+                  <button className="text-xs text-blue-600 font-medium">Pay Now</button>
+                </div>
+              </div>
             </div>
-            <span className="text-xs text-gray-600 text-center">Finance analysis</span>
-          </button>
-          
-          <button className="flex flex-col items-center space-y-2 p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-white/20">
-            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
-              <DollarSign className="text-green-600 text-lg" />
-            </div>
-            <span className="text-xs text-gray-600 text-center">Payment</span>
-          </button>
-          
-          <button className="flex flex-col items-center space-y-2 p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-white/20">
-            <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center">
-              <Smartphone className="text-orange-600 text-lg" />
-            </div>
-            <span className="text-xs text-gray-600 text-center">Investment</span>
-          </button>
+          </div>
         </div>
       </div>
 
@@ -747,6 +947,17 @@ const DashboardContent = ({ setShowMobileTransfer, handleTopUpWallet }) => {
             <p className="text-gray-400 text-sm mt-1">Your transactions will appear here</p>
           </div>
         )}
+      </div>
+
+      {/* Bulk Report Generation Button */}
+      <div className="text-center mt-6">
+        <button
+          onClick={handleGenerateBulkReport}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          disabled={operationLoading}
+        >
+          {operationLoading ? 'Generating Report...' : 'Generate Bulk Report'}
+        </button>
       </div>
     </div>
   );
