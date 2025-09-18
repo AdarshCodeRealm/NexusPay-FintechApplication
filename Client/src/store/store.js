@@ -6,6 +6,7 @@ import authReducer from './slices/authSlice'
 import walletReducer from './slices/walletSlice'
 import userReducer from './slices/userSlice'
 import counterReducer from './slices/counterSlice'
+import notificationReducer from './slices/notificationSlice'
 
 // Configure persistence for auth slice only
 const authPersistConfig = {
@@ -26,6 +27,7 @@ const rootReducer = combineReducers({
   wallet: walletReducer,
   user: userReducer,
   counter: counterReducer,
+  notifications: notificationReducer,
 })
 
 const persistedReducer = persistReducer(rootPersistConfig, rootReducer)

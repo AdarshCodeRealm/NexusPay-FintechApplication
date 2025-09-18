@@ -430,7 +430,7 @@ const WalletComponent = () => {
       )}
 
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+      {/* <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Welcome back,</h1>
           <p className="text-gray-600">{user?.fullName || 'User'}! 👋</p>
@@ -443,7 +443,7 @@ const WalletComponent = () => {
         <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-600 rounded-full flex items-center justify-center">
           <span className="text-white font-bold text-lg">{user?.fullName?.charAt(0) || 'U'}</span>
         </div>
-      </div>
+      </div> */}
 
       {/* Main Balance Card */}
       <div className="bg-gradient-to-br from-purple-500 to-blue-600 rounded-3xl p-6 shadow-lg text-white mb-6">

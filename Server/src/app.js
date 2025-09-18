@@ -37,13 +37,14 @@ app.use(
     origin: [
       "http://localhost:5173", // Vite dev server
       "https://nexus-pay-fintech-application-8gni.vercel.app", // Production frontend
+      "https://nexuspay-frontend.vercel.app", // Alternative frontend URL
       process.env.CORS_ORIGIN
     ].filter(Boolean), // Remove any undefined values
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept', 'X-CSRF-Token'],
     preflightContinue: false,
-    optionsSuccessStatus: 204
+    optionsSuccessStatus: 200
   })
 )
 
@@ -59,6 +60,8 @@ import beneficiaryRouter from "./routes/beneficiary.route.js"
 import userRouter from "./routes/user.route.js"
 import paymentRouter from "./routes/payment.route.js"
 import testRouter from "./routes/test.route.js"
+import notificationRouter from "./routes/notification.route.js"
+import moneyRequestRouter from "./routes/moneyRequest.route.js"
 
 // Route declarations
 app.use("/api/v1/auth", authRouter)
@@ -66,6 +69,8 @@ app.use("/api/v1/wallet", walletRouter)
 app.use("/api/v1/beneficiaries", beneficiaryRouter)
 app.use("/api/v1/users", userRouter)
 app.use("/api/v1/payments", paymentRouter)
+app.use("/api/v1/notifications", notificationRouter)
+app.use("/api/v1/money-requests", moneyRequestRouter)
 app.use("/api/v1/test", testRouter)
 
 // Health check route for monitoring

@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { api } from '../../lib/api.js';
 import { generateBulkTransactionPDF, generateIndividualReceipt, shareTransactionReceipt, printTransactionReceipt } from '../../lib/pdfUtils.jsx';
+import { addNotification, createTransactionNotification } from './notificationSlice.js';
 
 // Async thunks for wallet operations
 export const getWalletBalance = createAsyncThunk(
@@ -29,9 +30,33 @@ export const addMoneyToWallet = createAsyncThunk(
 
 export const transferMoney = createAsyncThunk(
   'wallet/transfer',
-  async (transferData, { rejectWithValue }) => {
+  async (transferData, { rejectWithValue, dispatch, getState }) => {
     try {
       const response = await api.post('/wallet/transfer', transferData);
+      
+      // Create notification for successful transfer (sender side)
+      if (response.data.success) {
+        const { user } = getState().auth;
+        const transferResult = response.data.data;
+        
+        // Create notification for money sent
+        const notification = {
+          id: `transfer_${Date.now()}`,
+          type: 'money_sent',
+          title: 'Payment Successful',
+          message: `You sent ₹${transferResult.transferAmount?.toLocaleString() || transferData.amount.toLocaleString()} to ${transferResult.recipient?.name || 'recipient'}`,
+          amount: -(transferResult.transferAmount || transferData.amount),
+          timestamp: new Date(),
+          isRead: false,
+          icon: 'money_sent',
+          bgColor: 'bg-blue-50',
+          borderColor: 'border-blue-200',
+          transaction: transferResult
+        };
+        
+        dispatch(addNotification(notification));
+      }
+      
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Transfer failed');

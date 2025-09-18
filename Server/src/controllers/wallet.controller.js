@@ -5,6 +5,11 @@ import { ApiResponse } from "../utils/utils/ApiResponse.js";
 import { sequelize } from "../db/index.js";
 import { Op } from "sequelize";
 import { generateEnhancedTransactionId, generateReferenceId } from "../utils/transactionUtils.js";
+import { 
+    createMoneyReceivedNotification, 
+    createMoneySentNotification,
+    createWalletTopupNotification 
+} from "./notification.controller.js";
 
 const getWalletBalance = asyncHandler(async (req, res) => {
     const user = await User.findByPk(req.user.id, {
@@ -63,6 +68,17 @@ const addMoneyToWallet = asyncHandler(async (req, res) => {
         }, { transaction });
 
         await transaction.commit();
+
+        // Create wallet topup notification
+        try {
+            await createWalletTopupNotification(
+                user.id,
+                parseFloat(amount),
+                paymentMethod || 'Online Payment'
+            );
+        } catch (notificationError) {
+            console.error('⚠️ Failed to create wallet topup notification:', notificationError);
+        }
 
         return res.status(200).json(
             new ApiResponse(200, {
@@ -310,6 +326,30 @@ const transferMoney = asyncHandler(async (req, res) => {
         });
 
         await dbTransaction.commit();
+
+        // Create notifications after successful transaction
+        try {
+            // Create notification for sender
+            await createMoneySentNotification(
+                sender.id, 
+                recipient.fullName, 
+                transferAmount, 
+                senderTransaction.id
+            );
+
+            // Create notification for recipient
+            await createMoneyReceivedNotification(
+                recipient.id, 
+                sender.fullName, 
+                transferAmount, 
+                recipientTransaction.id
+            );
+
+            console.log('✅ Notifications created successfully');
+        } catch (notificationError) {
+            console.error('⚠️ Failed to create notifications:', notificationError);
+            // Don't fail the transaction if notifications fail
+        }
 
         console.log(`✅ MPIN TRANSFER COMPLETED SUCCESSFULLY:`, {
             senderReferenceId,
