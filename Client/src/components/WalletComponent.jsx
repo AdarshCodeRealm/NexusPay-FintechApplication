@@ -1,18 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { 
   getWalletBalance, 
-  addMoneyToWallet, 
-  withdrawMoney, 
   getTransactionHistory,
   clearError,
-  downloadTransactionReceipt,
   initiatePhonePePayment,
   checkPaymentStatus,
   transferMoney
 } from '../store/slices/walletSlice';
 import { Button } from './ui/button';
-import { Plus, Send, ArrowUpDown, Eye, EyeOff, MoreHorizontal, ArrowUpRight, ArrowDownLeft, Filter, Download, X, Shield, CheckCircle, AlertTriangle, Star, ArrowLeft } from 'lucide-react';
+import { Plus, Send, ArrowUpDown, Eye, EyeOff, MoreHorizontal, ArrowUpRight, ArrowDownLeft, Filter, X, Shield, CheckCircle, AlertTriangle, ArrowLeft } from 'lucide-react';
 
 const WalletComponent = () => {
   const dispatch = useDispatch();
@@ -71,7 +68,53 @@ const WalletComponent = () => {
   useEffect(() => {
     dispatch(getWalletBalance());
     dispatch(getTransactionHistory({ page: 1, limit: 10 }));
-  }, [dispatch]);
+    
+    // Add message listener for payment popup communication
+    const handleMessage = (event) => {
+      // Verify origin for security
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      
+      if (event.data.type === 'PAYMENT_COMPLETED') {
+        console.log('Received payment completion message:', event.data);
+        
+        // Stop polling immediately
+        setPaymentPollingActive(false);
+        setPaymentProcessing(false);
+        
+        // Close payment window if still open
+        if (paymentWindow && !paymentWindow.closed) {
+          paymentWindow.close();
+        }
+        setPaymentWindow(null);
+        
+        if (event.data.status === 'success') {
+          setPaymentResult({
+            success: true,
+            message: `Payment completed successfully!`,
+            transactionId: event.data.transactionId
+          });
+          
+          // Reset form and refresh wallet data
+          setAddMoneyForm({ amount: '', paymentMethod: 'phonepe' });
+          dispatch(getWalletBalance());
+          dispatch(getTransactionHistory({ page: 1, limit: 10 }));
+        } else {
+          setPaymentResult({
+            success: false,
+            message: event.data.error || 'Payment failed. Please try again.'
+          });
+        }
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [dispatch, paymentWindow]);
 
   // Update recent transfers from actual transaction history
   useEffect(() => {
@@ -261,6 +304,184 @@ const WalletComponent = () => {
   };
 
   const { totalIn, totalOut } = calculateTotals();
+
+  // Add Money Function
+  const handleAddMoney = async (e) => {
+    e.preventDefault();
+    
+    const amount = parseFloat(addMoneyForm.amount);
+    
+    if (!amount || amount <= 0) {
+      setPaymentResult({
+        success: false,
+        message: 'Please enter a valid amount'
+      });
+      return;
+    }
+    
+    if (amount < 1) {
+      setPaymentResult({
+        success: false,
+        message: 'Minimum amount is ₹1'
+      });
+      return;
+    }
+    
+    if (amount > 50000) {
+      setPaymentResult({
+        success: false,
+        message: 'Maximum amount is ₹50,000'
+      });
+      return;
+    }
+
+    // Check if user data is available
+    if (!user || !user.phone) {
+      setPaymentResult({
+        success: false,
+        message: 'User phone number not available. Please refresh and try again.'
+      });
+      return;
+    }
+
+    try {
+      setShowAddMoneyModal(false);
+      setPaymentProcessing(true);
+      setPaymentPollingActive(true);
+
+      // Create payment data with all required fields for PhonePe API
+      const paymentData = {
+        amount: amount,
+        currency: 'INR',
+        paymentMethod: addMoneyForm.paymentMethod,
+        mobileNumber: user.phone, // Required by PhonePe API
+        name: user.fullName || 'User', // Optional but helpful
+        description: `Wallet topup - ₹${amount}`, // Optional description
+        userId: user.id // Optional user ID
+      };
+
+      console.log('Initiating payment:', paymentData);
+      
+      // Call the payment initiation API
+      const result = await dispatch(initiatePhonePePayment(paymentData));
+      
+      if (result.type === 'wallet/initiatePhonePePayment/fulfilled') {
+        const paymentResponse = result.payload.data;
+        
+        if (paymentResponse.paymentUrl) {
+          // Open payment window
+          const popup = window.open(
+            paymentResponse.paymentUrl,
+            'phonepe_payment',
+            'width=600,height=700,scrollbars=yes,resizable=yes'
+          );
+          
+          setPaymentWindow(popup);
+          setPaymentDetails(paymentResponse);
+          
+          // Start polling for payment status
+          const pollPaymentStatus = async () => {
+            try {
+              const statusResult = await dispatch(checkPaymentStatus(paymentResponse.transactionId));
+              
+              if (statusResult.type === 'wallet/checkPaymentStatus/fulfilled') {
+                const statusData = statusResult.payload.data;
+                
+                if (statusData.status === 'SUCCESS') {
+                  setPaymentProcessing(false);
+                  setPaymentPollingActive(false);
+                  
+                  if (popup && !popup.closed) {
+                    popup.close();
+                  }
+                  
+                  setPaymentResult({
+                    success: true,
+                    message: `₹${amount} added successfully to your wallet!`,
+                    transactionId: statusData.transactionId || paymentResponse.transactionId
+                  });
+                  
+                  // Reset form and refresh wallet data
+                  setAddMoneyForm({ amount: '', paymentMethod: 'phonepe' });
+                  dispatch(getWalletBalance());
+                  dispatch(getTransactionHistory({ page: 1, limit: 10 }));
+                  
+                } else if (statusData.status === 'FAILED') {
+                  setPaymentProcessing(false);
+                  setPaymentPollingActive(false);
+                  
+                  if (popup && !popup.closed) {
+                    popup.close();
+                  }
+                  
+                  setPaymentResult({
+                    success: false,
+                    message: statusData.message || 'Payment failed. Please try again.'
+                  });
+                } else if (statusData.status === 'PENDING') {
+                  // Continue polling if still pending
+                  if (paymentPollingActive) {
+                    setTimeout(pollPaymentStatus, 3000); // Poll every 3 seconds
+                  }
+                }
+              } else {
+                // API call failed, continue polling for a bit more
+                if (paymentPollingActive) {
+                  setTimeout(pollPaymentStatus, 3000);
+                }
+              }
+            } catch (err) {
+              console.error('Error checking payment status:', err);
+              if (paymentPollingActive) {
+                setTimeout(pollPaymentStatus, 3000);
+              }
+            }
+          };
+          
+          // Start polling after a short delay
+          setTimeout(pollPaymentStatus, 2000);
+          
+          // Set a timeout to stop polling after 10 minutes
+          setTimeout(() => {
+            if (paymentPollingActive) {
+              setPaymentProcessing(false);
+              setPaymentPollingActive(false);
+              
+              if (popup && !popup.closed) {
+                popup.close();
+              }
+              
+              setPaymentResult({
+                success: false,
+                message: 'Payment timeout. Please check your transaction history or try again.'
+              });
+            }
+          }, 600000); // 10 minutes
+          
+        } else {
+          setPaymentProcessing(false);
+          setPaymentResult({
+            success: false,
+            message: 'Failed to initiate payment. Please try again.'
+          });
+        }
+      } else {
+        setPaymentProcessing(false);
+        const errorMessage = result.payload || 'Failed to initiate payment';
+        setPaymentResult({
+          success: false,
+          message: errorMessage
+        });
+      }
+    } catch (err) {
+      console.error('Payment error:', err);
+      setPaymentProcessing(false);
+      setPaymentResult({
+        success: false,
+        message: 'An error occurred. Please try again.'
+      });
+    }
+  };
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {

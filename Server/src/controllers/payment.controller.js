@@ -33,10 +33,29 @@ const MERCHANT_BASE_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1
 const MERCHANT_STATUS_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/status"
 const MERCHANT_REFUND_URL = "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/refund"
 
-// Frontend URLs
-const successUrl = process.env.PAYMENT_SUCCESS_URL || "http://localhost:5173/payment-success"
-const failureUrl = process.env.PAYMENT_FAILURE_URL || "http://localhost:5173/payment-failure"
-const defaultRedirectUrl = process.env.PAYMENT_CALLBACK_URL || "http://localhost:3000/api/v1/payments/verify"
+// Environment-aware URLs - Auto-detect production vs development
+const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+const baseUrl = isProduction 
+  ? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://nexus-pay-fintech-application.vercel.app')
+  : 'http://localhost:3000';
+
+const frontendUrl = isProduction
+  ? 'https://nexus-pay-fintech-application-8gni.vercel.app'
+  : 'http://localhost:5173';
+
+// Frontend URLs with environment detection
+const successUrl = process.env.PAYMENT_SUCCESS_URL || `${frontendUrl}/payment-success`;
+const failureUrl = process.env.PAYMENT_FAILURE_URL || `${frontendUrl}/payment-failure`;
+const defaultRedirectUrl = process.env.PAYMENT_CALLBACK_URL || `${baseUrl}/api/v1/payments/verify`;
+
+console.log("Payment URLs Configuration:", {
+  isProduction,
+  baseUrl,
+  frontendUrl,
+  successUrl,
+  failureUrl,
+  defaultRedirectUrl
+});
 
 /**
  * Check if payment gateway is active

@@ -2,6 +2,85 @@
 
 A modern, full-stack fintech application built with React, Node.js, and MySQL (AWS RDS), designed for seamless digital wallet management and comprehensive payment processing with advanced financial services.
 
+## 📸 Application Screenshots
+
+### 🏠 Dashboard & Home
+<div align="center">
+  <img src="README_ASSETS/Home.png" alt="NEXASPAY Dashboard - Main Home Screen" width="800"/>
+  <p><em>Main dashboard with comprehensive overview of wallet balance, quick actions, and recent transactions</em></p>
+</div>
+
+### 🔐 Authentication & Security
+<div align="center">
+  <img src="README_ASSETS/LoginScreen.png" alt="Secure Login Interface" width="400"/>
+  <img src="README_ASSETS/SecuritySetting.png" alt="Security Settings Panel" width="400"/>
+  <p><em>Secure login system with multi-factor authentication and comprehensive security settings</em></p>
+</div>
+
+<div align="center">
+  <img src="README_ASSETS/WalletMPIN.png" alt="Wallet MPIN Security" width="400"/>
+  <p><em>Enhanced wallet security with MPIN verification for transactions</em></p>
+</div>
+
+### 💳 Wallet Management
+<div align="center">
+  <img src="README_ASSETS/wallet.png" alt="Wallet Overview" width="400"/>
+  <img src="README_ASSETS/INappWallet.png" alt="In-App Wallet Features" width="400"/>
+  <p><em>Comprehensive wallet management with real-time balance tracking and transaction history</em></p>
+</div>
+
+### 💸 Money Transfer & Requests
+<div align="center">
+  <img src="README_ASSETS/RequestMoney.png" alt="Money Request Feature" width="400"/>
+  <img src="README_ASSETS/RequestMoney (2).png" alt="Money Request Interface" width="400"/>
+  <p><em>P2P money transfer and request system with instant processing</em></p>
+</div>
+
+<div align="center">
+  <img src="README_ASSETS/reqMoney.png" alt="Request Money Flow" width="400"/>
+  <img src="README_ASSETS/rqMoney.png" alt="Money Request Status" width="400"/>
+  <p><em>Seamless money request workflow with status tracking and notifications</em></p>
+</div>
+
+### 🔍 QR Code Payments
+<div align="center">
+  <img src="README_ASSETS/OpenQR.png" alt="QR Code Scanner" width="400"/>
+  <img src="README_ASSETS/scanQR.png" alt="QR Scanning Interface" width="400"/>
+  <p><em>Advanced QR code payment system for instant transactions</em></p>
+</div>
+
+<div align="center">
+  <img src="README_ASSETS/QRpayemnt.png" alt="QR Payment Processing" width="400"/>
+  <p><em>QR code payment processing with real-time transaction confirmation</em></p>
+</div>
+
+### 💳 Payment Gateway Integration
+<div align="center">
+  <img src="README_ASSETS/PaymentGateway.png" alt="Payment Gateway Interface" width="400"/>
+  <img src="README_ASSETS/PaymentSuccess.png" alt="Payment Success Screen" width="400"/>
+  <p><em>Integrated payment gateway with PhonePe, UPI, and multiple payment options</em></p>
+</div>
+
+### 🧾 Bill Payments & Services
+<div align="center">
+  <img src="README_ASSETS/BillPayment.png" alt="Bill Payment Services" width="400"/>
+  <img src="README_ASSETS/BillPayment (2).png" alt="BBPS Bill Payment" width="400"/>
+  <p><em>Comprehensive bill payment services with BBPS integration for utilities, mobile, and DTH</em></p>
+</div>
+
+### 📊 Transaction Management
+<div align="center">
+  <img src="README_ASSETS/Transaction.png" alt="Transaction History" width="800"/>
+  <p><em>Detailed transaction history with advanced filtering, search, and export capabilities</em></p>
+</div>
+
+### 👤 Profile & Notifications
+<div align="center">
+  <img src="README_ASSETS/ProfilePage.png" alt="User Profile Management" width="400"/>
+  <img src="README_ASSETS/Notifications.png" alt="Push Notifications" width="400"/>
+  <p><em>Complete profile management with KYC integration and real-time notification system</em></p>
+</div>
+
 ## 🌐 Live Application
 
 - **Frontend (Client)**: [https://nexus-pay-fintech-application-8gni.vercel.app/dashboard](https://nexus-pay-fintech-application-8gni.vercel.app/dashboard)

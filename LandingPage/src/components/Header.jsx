@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, X, ChevronDown } from 'lucide-react';
-import { Button } from './ui/Button';
+import { Button } from './ui/button';
 import nexaspayIcon from '../assets/nexaspay-favicon.svg';
 
 const Header = () => {

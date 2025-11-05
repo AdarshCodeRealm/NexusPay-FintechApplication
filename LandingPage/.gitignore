@@ -64,3 +64,4 @@ public/sw.js.map
 
 # TypeScript
 *.tsbuildinfo
+.vercel
